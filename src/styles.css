@@ -1,0 +1,354 @@
+:root {
+  --panel-bg: rgba(15, 23, 42, 0.92);
+  --panel-border: rgba(148, 163, 184, 0.45);
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --ok: #86efac;
+  --warn: #fcd34d;
+  --err: #fca5a5;
+  --accent: #93c5fd;
+  --app-bg: radial-gradient(circle at 10% 10%, #0f172a 0%, #111827 45%, #030712 100%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  color: var(--text);
+  background: var(--app-bg);
+  font-family: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
+}
+
+#scene-container {
+  width: 100%;
+  height: 100%;
+}
+
+#panel {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+  width: min(380px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: var(--panel-bg);
+  backdrop-filter: blur(6px);
+}
+
+#panel[hidden] {
+  display: none !important;
+}
+
+#panel h1 {
+  margin: 0;
+  font-size: 1rem;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+}
+
+#panel .panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+#panel .panel-header button {
+  width: auto;
+  min-width: 92px;
+  padding: 6px 10px;
+  font-size: 0.8rem;
+}
+
+#show-panel-btn {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 11;
+  width: auto;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--panel-bg);
+  color: var(--text);
+  font: inherit;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+#show-panel-btn[hidden] {
+  display: none !important;
+}
+
+#panel label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+#panel label.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#panel label.toggle input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+#panel label.toggle span {
+  color: var(--text);
+}
+
+#panel input,
+#panel select,
+#panel button {
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.7);
+  color: var(--text);
+  font: inherit;
+  padding: 8px 10px;
+}
+
+#panel button {
+  cursor: pointer;
+}
+
+#panel button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+#panel .row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+#panel .section {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  padding: 8px;
+  display: grid;
+  gap: 8px;
+  background: rgba(2, 6, 23, 0.35);
+}
+
+#panel .section h2 {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+
+#panel.movement-hidden .movement-controls {
+  display: none !important;
+}
+
+#light-list {
+  display: grid;
+  gap: 8px;
+}
+
+.light-row {
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(2, 6, 23, 0.35);
+  display: grid;
+  gap: 6px;
+}
+
+.light-row-header {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto auto auto;
+  gap: 6px;
+}
+
+.light-row-header input[type="checkbox"] {
+  width: auto !important;
+  margin: 0;
+  align-self: center;
+  accent-color: var(--accent);
+}
+
+.light-row-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.light-field-label {
+  font-size: 0.73rem;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.light-row-position {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+}
+
+.light-move-controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.light-move-controls button {
+  font-size: 0.78rem;
+  padding: 6px 4px;
+}
+
+.light-row-advanced {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.light-row-shadow {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+}
+
+.light-type {
+  align-self: center;
+  justify-self: start;
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.light-delete {
+  width: auto !important;
+}
+
+.light-gizmo {
+  width: auto !important;
+}
+
+.light-row.is-gizmo-active {
+  border-color: rgba(147, 197, 253, 0.8);
+  box-shadow: 0 0 0 1px rgba(147, 197, 253, 0.45);
+}
+
+.light-row.is-selected {
+  border-color: rgba(56, 189, 248, 0.85);
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.45);
+}
+
+#outliner-list {
+  display: grid;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.outliner-row {
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 8px;
+  padding: 6px;
+  background: rgba(2, 6, 23, 0.35);
+  display: grid;
+  grid-template-columns: auto 1fr auto minmax(86px, 110px);
+  gap: 8px;
+  align-items: center;
+}
+
+.outliner-row input[type="checkbox"] {
+  width: auto !important;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.outliner-row.selected {
+  border-color: rgba(56, 189, 248, 0.85);
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.45);
+}
+
+.outliner-item-button {
+  text-align: left;
+  padding: 6px 8px !important;
+}
+
+.outliner-type {
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.outliner-parent {
+  padding: 5px 7px !important;
+  font-size: 0.74rem;
+}
+
+#missing-splat-prompt {
+  border: 1px solid rgba(252, 211, 77, 0.45);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(120, 53, 15, 0.18);
+}
+
+#missing-splat-prompt p {
+  margin: 0 0 6px;
+  color: var(--warn);
+  font-size: 0.82rem;
+}
+
+#status {
+  margin: 2px 0 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+#status.info {
+  color: var(--muted);
+}
+
+#status.success {
+  color: var(--ok);
+}
+
+#status.warning {
+  color: var(--warn);
+}
+
+#status.error {
+  color: var(--err);
+}
+
+@media (max-width: 760px) {
+  #panel {
+    width: calc(100vw - 16px);
+    left: 8px;
+    top: 8px;
+    padding: 10px;
+  }
+
+  #show-panel-btn {
+    top: 8px;
+    left: 8px;
+  }
+}
