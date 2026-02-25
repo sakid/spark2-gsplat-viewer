@@ -1,6 +1,6 @@
 import { disposeObject3D } from '../internal/disposeThree';
 import { EnvironmentTransforms } from '../internal/environmentTransforms';
-import { computeProxyAlignOffset } from '../internal/proxyAlign';
+import { computeProxyAlignment } from '../internal/proxyAlign';
 import { loadSplatFromFile, loadSplatFromUrl } from '../internal/splatLoaders';
 import { generateStableVoxelData } from '../internal/voxelGeneration';
 import { exportVoxelProxyGlb } from '../internal/voxelExport';
@@ -15,6 +15,7 @@ export class EnvironmentSplat {
     this.context = context;
     this.proxyCollisionMode = 'bone';
     this.proxyDeformSplat = true;
+    this.proxyAlignProfile = 'auto';
     this.external = new ExternalProxyRuntime({ context, owner: this.colliderOwner });
     const on = (event, handler) => this.unsubscribers.push(context.eventBus.on(event, handler));
     [
@@ -32,6 +33,7 @@ export class EnvironmentSplat {
       ['environment:proxyFlipUpDown', (enabled) => this.setTransformFlag('proxyFlipUpDown', enabled)],
       ['environment:proxyMirrorX', (enabled) => this.setTransformFlag('proxyMirrorX', enabled)],
       ['environment:proxyMirrorZ', (enabled) => this.setTransformFlag('proxyMirrorZ', enabled)],
+      ['environment:proxyAlignProfile', (profile) => this.setProxyAlignProfile(profile)],
       ['environment:proxyAnimPlay', (enabled) => this.external?.animator.setPlaying(enabled)],
       ['environment:proxyAnimClip', (clip) => this.external?.animator.playClip(clip)],
       ['environment:proxyAnimSpeed', (speed) => this.external?.animator.setSpeed(speed)],
@@ -50,12 +52,50 @@ export class EnvironmentSplat {
     this.external?.rebindDeformer(this.splatMesh);
     if (this.proxyKind === 'voxel' && (flag === 'flipUpDown' || flag === 'flipLeftRight')) this.generateVoxel();
   }
+  findAlignmentAnchorNode() {
+    const bones = this.external?.asset?.skinnedMeshes?.[0]?.skeleton?.bones ?? [];
+    if (!bones.length) return null;
+    const preferred = [/hips/i, /pelvis/i, /root/i, /spine/i];
+    for (const pattern of preferred) {
+      const match = bones.find((bone) => pattern.test(bone?.name || ''));
+      if (match) return match;
+    }
+    return bones[0] ?? null;
+  }
+  normalizeProxyAlignProfile(value) {
+    if (value === 'character' || value === 'generic') return value;
+    return 'auto';
+  }
+  setProxyAlignProfile(profile) {
+    const next = this.normalizeProxyAlignProfile(profile);
+    if (next === this.proxyAlignProfile) return;
+    this.proxyAlignProfile = next;
+    if (this.proxyKind !== 'external' || !this.proxyRoot || !this.splatMesh) return;
+    this.syncExternalProxy({ autoAlign: true });
+    this.external?.rebindDeformer(this.splatMesh);
+    this.context.setStatus(`Proxy alignment profile: ${next}.`, 'info');
+  }
+  getProxyAlignmentOptions() {
+    const asset = this.external?.asset;
+    const hasSkeleton = Boolean(asset?.skinnedMeshes?.length);
+    const hasAnimations = Boolean(asset?.animations?.length);
+    const resolvedProfile = this.proxyAlignProfile === 'auto'
+      ? (hasSkeleton ? 'character' : 'generic')
+      : this.proxyAlignProfile;
+    return {
+      profile: resolvedProfile,
+      preferUpright: hasSkeleton || hasAnimations,
+      anchorNode: hasSkeleton ? this.findAlignmentAnchorNode() : null,
+      anchorBlend: hasSkeleton ? 0.85 : 0
+    };
+  }
   syncExternalProxy({ autoAlign = true } = {}) {
     if (!this.splatMesh || !this.proxyRoot || this.proxyKind !== 'external') return;
     if (autoAlign) {
-      this.transforms.proxyAlignOffset.set(0, 0, 0);
+      this.transforms.setProxyAutoAlignment({ offset: { x: 0, y: 0, z: 0 }, scale: 1, quaternion: null });
       this.transforms.applyProxy(this.proxyRoot);
-      computeProxyAlignOffset(this.splatMesh, this.proxyRoot, this.transforms.proxyAlignOffset);
+      const alignment = computeProxyAlignment(this.splatMesh, this.proxyRoot, this.getProxyAlignmentOptions());
+      this.transforms.setProxyAutoAlignment(alignment);
     }
     this.transforms.applyProxy(this.proxyRoot);
   }
@@ -89,9 +129,9 @@ export class EnvironmentSplat {
       this.removeProxy();
       this.proxyKind = 'external';
       this.proxyRoot = await this.external.load(file, this.splatMesh);
-      this.externalAutoAlign = options.forceAutoAlign === true ? true : !(this.external?.asset?.animations?.length > 0);
+      this.externalAutoAlign = options.forceAutoAlign !== false;
       this.transforms.captureProxy(this.proxyRoot);
-      this.transforms.proxyAlignOffset.set(0, 0, 0);
+      this.transforms.setProxyAutoAlignment({ offset: { x: 0, y: 0, z: 0 }, scale: 1, quaternion: null });
       this.syncExternalProxy({ autoAlign: this.externalAutoAlign });
       const showProxyInput = document.getElementById('show-proxy-mesh');
       if (showProxyInput && 'checked' in showProxyInput) showProxyInput.checked = true;
@@ -107,7 +147,17 @@ export class EnvironmentSplat {
     }
   }
   setProxyVisible(enabled) { if (this.proxyKind === 'external') this.external?.setVisible(enabled); else if (this.proxyRoot) this.proxyRoot.visible = enabled; }
-  realignProxy() { if (this.proxyKind !== 'external') return; this.syncExternalProxy({ autoAlign: true }); this.external?.rebindDeformer(this.splatMesh); this.context.setStatus('Proxy re-aligned.', 'info'); }
+  realignProxy() {
+    if (this.proxyKind !== 'external') return;
+    this.syncExternalProxy({ autoAlign: true });
+    this.external?.rebindDeformer(this.splatMesh);
+    const { proxyAlignScale, proxyAlignOffset } = this.transforms;
+    const profile = this.getProxyAlignmentOptions()?.profile ?? this.proxyAlignProfile;
+    this.context.setStatus(
+      `Proxy re-aligned (${profile}, scale ${proxyAlignScale.toFixed(3)}, offset ${proxyAlignOffset.x.toFixed(2)}, ${proxyAlignOffset.y.toFixed(2)}, ${proxyAlignOffset.z.toFixed(2)}).`,
+      'info'
+    );
+  }
   async generateVoxel() {
     if (!this.splatMesh) return this.context.setStatus('Load an environment splat before generating voxels.', 'warning');
     try {

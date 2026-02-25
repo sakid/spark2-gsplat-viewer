@@ -29,6 +29,8 @@ export class EnvironmentTransforms {
     this.splatBase = null;
     this.proxyBase = null;
     this.proxyAlignOffset = new THREE.Vector3();
+    this.proxyAlignScale = 1;
+    this.proxyAlignQuaternion = new THREE.Quaternion();
   }
 
   setFlag(flag, enabled) {
@@ -51,6 +53,15 @@ export class EnvironmentTransforms {
   clearProxy() {
     this.proxyBase = null;
     this.proxyAlignOffset.set(0, 0, 0);
+    this.proxyAlignScale = 1;
+    this.proxyAlignQuaternion.identity();
+  }
+
+  setProxyAutoAlignment({ offset, scale, quaternion } = {}) {
+    this.proxyAlignOffset.copy(offset ?? new THREE.Vector3());
+    this.proxyAlignScale = Number.isFinite(scale) ? Math.max(scale, 1e-4) : 1;
+    if (quaternion instanceof THREE.Quaternion) this.proxyAlignQuaternion.copy(quaternion);
+    else this.proxyAlignQuaternion.identity();
   }
 
   applySplat(mesh) {
@@ -67,11 +78,12 @@ export class EnvironmentTransforms {
   applyProxy(proxy) {
     if (!proxy || !this.proxyBase) return;
     tempQuat.copy(this.proxyBase.quaternion);
+    tempQuat.multiply(this.proxyAlignQuaternion);
     if (this.proxyFlipUpDown) applyFlipQuaternion(tempQuat);
     if (this.flipUpDown) applyFlipQuaternion(tempQuat);
     proxy.position.copy(this.proxyBase.position).add(this.proxyAlignOffset);
     proxy.quaternion.copy(tempQuat);
-    proxy.scale.copy(this.proxyBase.scale);
+    proxy.scale.copy(this.proxyBase.scale).multiplyScalar(this.proxyAlignScale);
     if (this.proxyMirrorX) proxy.scale.x = -proxy.scale.x;
     if (this.proxyMirrorZ) proxy.scale.z = -proxy.scale.z;
     if (this.flipLeftRight) proxy.scale.x = -proxy.scale.x;

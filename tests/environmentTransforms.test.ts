@@ -34,4 +34,22 @@ describe('environment transforms', () => {
     expect(proxy.quaternion.angleTo(new THREE.Quaternion())).toBeLessThan(1e-6);
     expect(proxy.scale.toArray()).toEqual([1, 2, -3]);
   });
+
+  test('applies proxy auto-alignment scale and quaternion before user toggles', () => {
+    const proxy = new THREE.Object3D();
+    proxy.scale.set(1, 2, 3);
+    const transforms = new EnvironmentTransforms();
+    transforms.captureProxy(proxy);
+    transforms.setProxyAutoAlignment({
+      offset: new THREE.Vector3(4, 5, 6),
+      scale: 2,
+      quaternion: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI * 0.5)
+    });
+    transforms.setFlag('proxyMirrorX', true);
+    transforms.applyProxy(proxy);
+
+    expect(proxy.position.toArray()).toEqual([4, 5, 6]);
+    expect(proxy.scale.toArray()).toEqual([-2, 4, 6]);
+    expect(proxy.quaternion.angleTo(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI * 0.5))).toBeLessThan(1e-6);
+  });
 });

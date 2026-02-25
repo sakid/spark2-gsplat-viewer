@@ -61,6 +61,13 @@ const LEGACY_CONTROLS_HTML = `
       <span>Proxy mirror Z (proxy only)</span>
     </label>
 
+    <label for="proxy-align-profile">Proxy align profile</label>
+    <select id="proxy-align-profile">
+      <option value="auto" selected>Auto (recommended)</option>
+      <option value="character">Character</option>
+      <option value="generic">Generic mesh</option>
+    </select>
+
     <label class="toggle" for="proxy-edit-mode">
       <input id="proxy-edit-mode" type="checkbox" />
       <span>Proxy Edit Mode (orbit + gizmo)</span>

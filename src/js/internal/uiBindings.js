@@ -70,6 +70,7 @@ export function bindUi(eventBus, root = document) {
   const proxyFlipUpDown = byId('proxy-flip-updown', root);
   const proxyMirrorX = byId('proxy-mirror-x', root);
   const proxyMirrorZ = byId('proxy-mirror-z', root);
+  const proxyAlignProfile = byId('proxy-align-profile', root);
   const generateVoxel = byId('generate-voxel-btn', root);
   const exportVoxelGlb = byId('export-voxel-glb-btn', root);
   const showProxy = byId('show-proxy-mesh', root);
@@ -112,6 +113,7 @@ export function bindUi(eventBus, root = document) {
   on(proxyFlipUpDown, 'change', () => eventBus.emit('environment:proxyFlipUpDown', Boolean(proxyFlipUpDown?.checked)), disposers);
   on(proxyMirrorX, 'change', () => eventBus.emit('environment:proxyMirrorX', Boolean(proxyMirrorX?.checked)), disposers);
   on(proxyMirrorZ, 'change', () => eventBus.emit('environment:proxyMirrorZ', Boolean(proxyMirrorZ?.checked)), disposers);
+  on(proxyAlignProfile, 'change', () => eventBus.emit('environment:proxyAlignProfile', proxyAlignProfile?.value ?? 'auto'), disposers);
   on(generateVoxel, 'click', () => eventBus.emit('environment:generateVoxel'), disposers);
   on(exportVoxelGlb, 'click', () => eventBus.emit('environment:exportVoxelGlb'), disposers);
   on(showProxy, 'change', () => eventBus.emit('environment:showProxy', Boolean(showProxy?.checked)), disposers);
@@ -179,6 +181,7 @@ export function bindUi(eventBus, root = document) {
   eventBus.emit('environment:proxyFlipUpDown', Boolean(proxyFlipUpDown?.checked));
   eventBus.emit('environment:proxyMirrorX', Boolean(proxyMirrorX?.checked));
   eventBus.emit('environment:proxyMirrorZ', Boolean(proxyMirrorZ?.checked));
+  eventBus.emit('environment:proxyAlignProfile', proxyAlignProfile?.value ?? 'auto');
   eventBus.emit('environment:showProxy', Boolean(showProxy?.checked));
   eventBus.emit('controls:collision', collisionEnabled ? Boolean(collisionEnabled.checked) : false);
   eventBus.emit('quality:improved', Boolean(qualityImproved?.checked));
