@@ -18,6 +18,9 @@ async function bootstrap() {
   const sceneManager = new SceneManager({ container, eventBus, statusReporter });
   await sceneManager.init();
   const canvas = sceneManager.renderer?.domElement ?? null;
+  if (import.meta.env.DEV) {
+    window.__SPARK2_DEBUG__ = { sceneManager, eventBus };
+  }
 
   const relayDom = (eventName, target = window, options) => {
     const handler = (event) => eventBus.emit(`dom:${eventName}`, event);
@@ -54,7 +57,7 @@ async function bootstrap() {
 
   let lastTime = performance.now();
   const frame = (now) => {
-    const delta = Math.min((now - lastTime) / 1000, 0.05);
+    const delta = Math.max(0, (now - lastTime) / 1000);
     lastTime = now;
     sceneManager.update(delta);
     requestAnimationFrame(frame);
@@ -64,6 +67,9 @@ async function bootstrap() {
   window.addEventListener('beforeunload', () => {
     for (const dispose of disposers) dispose();
     sceneManager.dispose();
+    if (import.meta.env.DEV && window.__SPARK2_DEBUG__) {
+      delete window.__SPARK2_DEBUG__;
+    }
   });
 }
 

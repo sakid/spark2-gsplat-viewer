@@ -83,6 +83,7 @@ export class CameraControls {
       return;
     }
 
+    const step = Math.min(Math.max(delta, 0), 0.05);
     const forward = Number(this.keys.has('KeyW')) - Number(this.keys.has('KeyS'));
     const side = Number(this.keys.has('KeyD')) - Number(this.keys.has('KeyA'));
     const boost = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') ? BOOST : 1;
@@ -100,7 +101,7 @@ export class CameraControls {
     if (side) this.tempMove.addScaledVector(this.tempRight, side);
 
     if (this.tempMove.lengthSq() > 0) {
-      this.tempMove.normalize().multiplyScalar(MOVE_SPEED * boost * delta);
+      this.tempMove.normalize().multiplyScalar(MOVE_SPEED * boost * step);
     }
 
     if (this.collisionEnabled) {
@@ -108,14 +109,14 @@ export class CameraControls {
         this.verticalVelocity = JUMP_SPEED;
         this.isGrounded = false;
       }
-      this.verticalVelocity += GRAVITY * delta;
+      this.verticalVelocity += GRAVITY * step;
     } else {
       this.verticalVelocity = (Number(this.keys.has('KeyQ')) - Number(this.keys.has('KeyE'))) * MOVE_SPEED;
     }
 
     this.tempFrom.copy(this.camera.position);
     this.tempTo.copy(this.tempFrom).add(this.tempMove);
-    this.tempTo.y += this.verticalVelocity * delta;
+    this.tempTo.y += this.verticalVelocity * step;
 
     this.resolveOptions.collisionEnabled = this.collisionEnabled;
     const resolved = this.context.resolveCameraMovement(this.tempFrom, this.tempTo, this.resolveOptions);

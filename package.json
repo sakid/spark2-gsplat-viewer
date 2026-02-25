@@ -11,6 +11,7 @@
     "test:watch": "vitest",
     "check:lines": "node scripts/check-lines.mjs",
     "test:collision-smoke": "node scripts/collision-smoke.mjs",
+    "test:deform-smoke": "node scripts/deform-smoke.mjs",
     "convert:ply-to-spz": "tsx scripts/convert-ply-to-spz.mts",
     "convert:proxy": "tsx scripts/convert-proxy-mesh.mts"
   },

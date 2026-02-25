@@ -51,8 +51,23 @@ function intersectsMeshColliders(position, colliders, radius, height) {
   return false;
 }
 
-function canOccupy(position, { colliders, voxelData, radius, height }, ignoreGround = false) {
+function intersectsDynamicColliders(position, dynamicColliders, radius, height) {
+  if (!Array.isArray(dynamicColliders) || dynamicColliders.length === 0) return false;
+  tempSphere.center.set(position.x, position.y - height * 0.5, position.z);
+  tempSphere.radius = radius;
+  for (const collider of dynamicColliders) {
+    if (!collider?.center || !Number.isFinite(collider.radius)) continue;
+    const totalRadius = tempSphere.radius + Math.max(0, collider.radius);
+    if (tempSphere.center.distanceToSquared(collider.center) <= totalRadius * totalRadius) return true;
+  }
+  return false;
+}
+
+function canOccupy(position, { colliders, dynamicColliders, voxelData, radius, height }, ignoreGround = false) {
   if (intersectsMeshColliders(position, colliders, radius, height)) {
+    return false;
+  }
+  if (intersectsDynamicColliders(position, dynamicColliders, radius, height)) {
     return false;
   }
   return !isVoxelColliding(position, voxelData, radius, height, ignoreGround);
@@ -76,9 +91,9 @@ function tryUnstuckUp(position, query) {
 }
 
 // NEW PROXY ANIMATION
-export function resolveCameraMovement({ from, to, out, colliders, voxelData, radius = 0.22, height = 1.3 }) {
+export function resolveCameraMovement({ from, to, out, colliders, dynamicColliders, voxelData, radius = 0.22, height = 1.3 }) {
   const resolved = out ? out.copy(from) : from.clone();
-  const query = { colliders, voxelData, radius, height };
+  const query = { colliders, dynamicColliders, voxelData, radius, height };
   const stepHeight = Math.max(0.08, Math.min(0.45, (voxelData?.resolution ?? radius) * 0.75));
 
   tryUnstuckUp(resolved, query);

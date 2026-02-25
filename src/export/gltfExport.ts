@@ -98,11 +98,30 @@ export function createExportableVoxelMesh(voxelData: VoxelData): THREE.Group {
   if (uvArray.length > 0) merged.setAttribute('uv', new THREE.Float32BufferAttribute(uvArray, 2));
   merged.setIndex(indexArray);
 
+  const vertices = merged.getAttribute('position').count;
+  const skinIndices = new Uint16Array(vertices * 4);
+  const skinWeights = new Float32Array(vertices * 4);
+  for (let i = 0; i < vertices; i += 1) skinWeights[i * 4] = 1;
+  merged.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(skinIndices, 4));
+  merged.setAttribute('skinWeight', new THREE.Float32BufferAttribute(skinWeights, 4));
+
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0, roughness: 1 });
-  const mergedMesh = new THREE.Mesh(merged, material);
-  mergedMesh.name = `${exportGroup.name}_Merged`;
+  const rootBone = new THREE.Bone();
+  rootBone.name = 'VoxelRoot';
+  const skeleton = new THREE.Skeleton([rootBone]);
+  const mergedMesh = new THREE.SkinnedMesh(merged, material);
+  mergedMesh.name = `${exportGroup.name}_Skinned`;
+  mergedMesh.add(rootBone);
+  mergedMesh.bind(skeleton);
+  mergedMesh.userData.sparkProxyVersion = 1;
+  mergedMesh.userData.proxyType = 'voxel';
+  mergedMesh.userData.sourceResolution = voxelData.resolution;
+  mergedMesh.userData.activeVoxelCount = activeCount;
   exportGroup.add(mergedMesh);
   exportGroup.updateMatrixWorld(true);
+  exportGroup.userData.sparkProxyVersion = 1;
+  exportGroup.userData.proxyType = 'voxel';
+  exportGroup.userData.sourceResolution = voxelData.resolution;
   exportGroup.userData.activeVoxelCount = activeCount;
   return exportGroup;
 }

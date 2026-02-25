@@ -39,11 +39,14 @@ describe('gltf export', () => {
     const exportGroup = createExportableVoxelMesh(voxelData);
     expect(exportGroup.children.length).toBe(1);
     expect(exportGroup.userData.activeVoxelCount).toBe(4);
+    expect(exportGroup.userData.proxyType).toBe('voxel');
     const mesh = exportGroup.children[0];
-    expect(mesh).toBeInstanceOf(THREE.Mesh);
-    const geometry = mesh instanceof THREE.Mesh ? mesh.geometry : null;
+    expect(mesh).toBeInstanceOf(THREE.SkinnedMesh);
+    const geometry = mesh instanceof THREE.SkinnedMesh ? mesh.geometry : null;
     expect(geometry?.getAttribute('position').count).toBeGreaterThan(0);
     expect(geometry?.getAttribute('color').count).toBeGreaterThan(0);
+    expect(geometry?.getAttribute('skinIndex').count).toBeGreaterThan(0);
+    expect(geometry?.getAttribute('skinWeight').count).toBeGreaterThan(0);
     const colorAttr = geometry?.getAttribute('color');
     expect(colorAttr?.getX(0)).toBeCloseTo(0, 5);
     expect(colorAttr?.getY(0)).toBeCloseTo(0.5, 5);

@@ -30,7 +30,10 @@ export async function exportVoxelProxyGlb({ voxelData, baseName, setStatus }) {
     setStatus?.(`Voxel proxy export failed: ${detail}`, 'error');
   } finally {
     if (!exportMesh) return;
-    exportMesh.geometry?.dispose?.();
-    disposeMaterial(exportMesh.material);
+    exportMesh.traverse((child) => {
+      if (!child?.isMesh) return;
+      child.geometry?.dispose?.();
+      disposeMaterial(child.material);
+    });
   }
 }

@@ -1,8 +1,8 @@
 // NEW PROXY ANIMATION
+import { bindProxyUi } from './proxyUiBindings';
 function byId(id) {
   return document.getElementById(id) ?? null;
 }
-
 function on(element, event, handler, disposers) {
   if (!element) return;
   element.addEventListener(event, handler);
@@ -86,6 +86,7 @@ export function bindUi(eventBus) {
 
   panelToggle(disposers);
   bindExclusiveModes(eventBus, disposers);
+  bindProxyUi(eventBus, disposers);
 
   on(loadButton, 'click', () => {
     const file = splatInput?.files?.[0] ?? null;

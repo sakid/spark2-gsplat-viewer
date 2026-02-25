@@ -17,6 +17,7 @@
 
       <label for="file-input">Splat file</label>
       <input id="file-input" type="file" accept=".spz,.ply,.splat,.ksplat" />
+      <small id="splat-loaded-name" style="color:#94a3b8;">Loaded: Sean_Sheep.spz</small>
 
       <label for="load-mode">Load mode</label>
       <select id="load-mode">
@@ -33,6 +34,7 @@
         <h2>Collision & Proxy Mesh</h2>
         <label for="proxy-file-input">Proxy Geometry (.glb, .obj)</label>
         <input id="proxy-file-input" type="file" accept=".glb,.gltf,.obj" />
+        <small id="proxy-loaded-name" style="color:#94a3b8;">Loaded: sean_proxy_animated.glb</small>
 
         <div class="row">
           <button id="realign-proxy-btn" type="button">Re-align proxy</button>
@@ -70,13 +72,33 @@
         </div>
 
         <label class="toggle" for="collision-enabled">
-          <input id="collision-enabled" type="checkbox" checked />
+          <input id="collision-enabled" type="checkbox" />
           <span>Enable collision</span>
         </label>
 
         <label class="toggle" for="show-proxy-mesh">
           <input id="show-proxy-mesh" type="checkbox" />
           <span>Show proxy mesh (debug)</span>
+        </label>
+
+        <label for="proxy-anim-clip">Proxy animation clip</label>
+        <select id="proxy-anim-clip"><option value="">No animation clips</option></select>
+        <label class="toggle" for="proxy-anim-play">
+          <input id="proxy-anim-play" type="checkbox" checked />
+          <span>Play proxy animation</span>
+        </label>
+        <label for="proxy-anim-speed">Proxy animation speed</label>
+        <input id="proxy-anim-speed" type="number" min="0" max="20" step="0.1" value="4" />
+        <button id="proxy-anim-restart" type="button">Restart proxy animation</button>
+        <label for="proxy-collision-mode">Proxy collision mode</label>
+        <select id="proxy-collision-mode">
+          <option value="bone" selected>Bone (animated)</option>
+          <option value="static">Static mesh</option>
+          <option value="off">Off</option>
+        </select>
+        <label class="toggle" for="proxy-deform-splat">
+          <input id="proxy-deform-splat" type="checkbox" checked />
+          <span>Deform splat from proxy animation</span>
         </label>
 
         <div class="row">
