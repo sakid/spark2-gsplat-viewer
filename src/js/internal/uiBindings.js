@@ -87,6 +87,15 @@ export function bindUi(eventBus, root = document) {
   const toneMapping = byId('tone-mapping', root);
   const toneExposure = byId('tone-mapping-exposure', root);
   const outlinerFocus = byId('outliner-focus-btn', root);
+  const sceneNameInput = byId('scene-name', root);
+  const saveSceneFileBtn = byId('save-scene-file-btn', root);
+  const openSceneFileBtn = byId('open-scene-file-btn', root);
+  const loadSceneFileInput = byId('load-scene-file-input', root);
+  const sceneSlotNameInput = byId('scene-slot-name', root);
+  const sceneSlotSelect = byId('scene-slot-select', root);
+  const saveSceneSlotBtn = byId('save-scene-slot-btn', root);
+  const loadSceneSlotBtn = byId('load-scene-slot-btn', root);
+  const deleteSceneSlotBtn = byId('delete-scene-slot-btn', root);
 
   panelToggle(disposers, root);
   bindExclusiveModes(eventBus, disposers, root);
@@ -120,6 +129,39 @@ export function bindUi(eventBus, root = document) {
   }, disposers);
   on(lightingProbes, 'change', () => eventBus.emit('lights:showProbes', Boolean(lightingProbes?.checked)), disposers);
   on(outlinerFocus, 'click', () => eventBus.emit('selection:focusRequested'), disposers);
+  on(saveSceneFileBtn, 'click', () => {
+    eventBus.emit('scene:saveFileRequested', {
+      sceneName: sceneNameInput?.value?.trim() || 'Untitled Scene'
+    });
+  }, disposers);
+  on(openSceneFileBtn, 'click', () => {
+    eventBus.emit('scene:openFileRequested', { root });
+  }, disposers);
+  on(loadSceneFileInput, 'change', () => {
+    const file = loadSceneFileInput?.files?.[0] ?? null;
+    if (!file) return;
+    eventBus.emit('scene:openFileRequested', { file, root });
+    loadSceneFileInput.value = '';
+  }, disposers);
+  on(saveSceneSlotBtn, 'click', () => {
+    eventBus.emit('scene:saveSlotRequested', {
+      slotName: sceneSlotNameInput?.value?.trim() || '',
+      sceneName: sceneNameInput?.value?.trim() || 'Untitled Scene',
+      root
+    });
+  }, disposers);
+  on(loadSceneSlotBtn, 'click', () => {
+    eventBus.emit('scene:loadSlotRequested', {
+      slotName: sceneSlotSelect?.value?.trim() || sceneSlotNameInput?.value?.trim() || '',
+      root
+    });
+  }, disposers);
+  on(deleteSceneSlotBtn, 'click', () => {
+    eventBus.emit('scene:deleteSlotRequested', {
+      slotName: sceneSlotSelect?.value?.trim() || sceneSlotNameInput?.value?.trim() || '',
+      root
+    });
+  }, disposers);
 
   const emitLighting = () => eventBus.emit('lights:rendererSettings', {
     physicallyCorrectLights: Boolean(physicallyCorrect?.checked),
@@ -147,6 +189,7 @@ export function bindUi(eventBus, root = document) {
   eventBus.emit('lights:showMovementControls', showMovementControls ? Boolean(showMovementControls.checked) : true);
   eventBus.emit('lights:showProbes', lightingProbes ? Boolean(lightingProbes.checked) : true);
   emitLighting();
+  eventBus.emit('scene:slotsRefreshRequested', { root });
 
   return () => {
     for (const dispose of disposers.splice(0)) dispose();
