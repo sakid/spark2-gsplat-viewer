@@ -17,10 +17,12 @@
   },
   "dependencies": {
     "@sparkjsdev/spark": "file:vendor/spark-preview.tgz",
+    "dockview-core": "^5.0.0",
     "meshoptimizer": "^1.0.1",
     "three": "^0.180.0",
     "three-mesh-bvh": "^0.9.8",
-    "three-stdlib": "^2.36.1"
+    "three-stdlib": "^2.36.1",
+    "tweakpane": "^4.0.5"
   },
   "devDependencies": {
     "@gltf-transform/core": "^4.3.0",

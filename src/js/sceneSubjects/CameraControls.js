@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { frameCameraToObject } from '../internal/cameraFrame';
 
 const MOVE_SPEED = 5;
 const BOOST = 3;
@@ -14,14 +15,15 @@ export class CameraControls {
     this.verticalVelocity = 0;
     this.isGrounded = false;
     this.mode = 'view';
-    this.collisionEnabled = true;
+    this.collisionEnabled = false;
     this.tempFront = new THREE.Vector3();
     this.tempRight = new THREE.Vector3();
     this.tempMove = new THREE.Vector3();
     this.tempFrom = new THREE.Vector3();
     this.tempTo = new THREE.Vector3();
     this.tempResolved = new THREE.Vector3();
-    this.resolveOptions = { collisionEnabled: true, radius: 0.22, height: 1.35, out: this.tempResolved };
+    this.resolveOptions = { collisionEnabled: false, radius: 0.22, height: 1.35, out: this.tempResolved };
+    this.selectedObject = null;
   }
 
   async init(context) {
@@ -36,7 +38,8 @@ export class CameraControls {
     this.pitch = this.camera.rotation.x;
 
     this.unsubscribers.push(context.eventBus.on('controls:collision', (enabled) => {
-      this.collisionEnabled = enabled;
+      this.collisionEnabled = Boolean(enabled);
+      this.emitPlayerState();
     }));
 
     this.unsubscribers.push(context.eventBus.on('controls:mode', (mode) => {
@@ -46,6 +49,7 @@ export class CameraControls {
       if (mode !== 'view' && document.pointerLockElement === this.dom) {
         document.exitPointerLock();
       }
+      this.emitPlayerState();
     }));
 
     this.unsubscribers.push(context.eventBus.on('dom:keydown', (event) => {
@@ -71,6 +75,56 @@ export class CameraControls {
       this.pitch = THREE.MathUtils.clamp(this.pitch, -1.52, 1.52);
       this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
     }));
+
+    this.unsubscribers.push(context.eventBus.on('selectionChanged', (payload) => {
+      this.selectedObject = payload?.object ?? null;
+    }));
+
+    this.unsubscribers.push(context.eventBus.on('selection:focusRequested', () => {
+      this.focusSelectedObject();
+    }));
+
+    this.emitPlayerState();
+  }
+
+  emitPlayerState() {
+    if (!this.context?.eventBus || !this.camera) return;
+    this.context.eventBus.emit('player:stateChanged', {
+      collisionEnabled: this.collisionEnabled,
+      isGrounded: this.isGrounded,
+      mode: this.mode,
+      position: {
+        x: this.camera.position.x,
+        y: this.camera.position.y,
+        z: this.camera.position.z
+      }
+    });
+  }
+
+  focusSelectedObject() {
+    const target = this.selectedObject;
+    if (!target) {
+      this.context?.setStatus?.('Select an object to focus.', 'warning');
+      return;
+    }
+    if (target === this.camera || target?.isCamera) {
+      this.context?.setStatus?.('Cannot frame active player camera.', 'warning');
+      return;
+    }
+
+    const center = frameCameraToObject(this.camera, target);
+    if (!center) {
+      this.context?.setStatus?.('Unable to focus selected object.', 'warning');
+      return;
+    }
+
+    if (this.orbit?.target?.copy) {
+      this.orbit.target.copy(center);
+      this.orbit.update?.();
+    }
+
+    this.context?.setStatus?.(`Focused ${target.name || target.type || target.uuid || 'object'}.`, 'info');
+    this.emitPlayerState();
   }
 
   update(delta) {
@@ -118,6 +172,7 @@ export class CameraControls {
     this.tempTo.copy(this.tempFrom).add(this.tempMove);
     this.tempTo.y += this.verticalVelocity * step;
 
+    const wasGrounded = this.isGrounded;
     this.resolveOptions.collisionEnabled = this.collisionEnabled;
     const resolved = this.context.resolveCameraMovement(this.tempFrom, this.tempTo, this.resolveOptions);
 
@@ -129,6 +184,9 @@ export class CameraControls {
     }
 
     this.camera.position.copy(resolved);
+    if (wasGrounded !== this.isGrounded) {
+      this.emitPlayerState();
+    }
   }
 
   dispose() {

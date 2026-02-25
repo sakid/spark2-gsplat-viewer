@@ -1,0 +1,197 @@
+/* npm install dockview-core tweakpane && npm run dev */
+
+:root {
+  --editor-bg: radial-gradient(circle at 8% 8%, #132034 0%, #0c121a 52%, #080b11 100%);
+  --editor-surface: #111821;
+  --editor-surface-2: #141f2b;
+  --editor-border: #253446;
+  --editor-border-strong: #34506c;
+  --editor-text: #dce6f3;
+  --editor-muted: #98a6b8;
+  --editor-accent: #6ec1ff;
+}
+
+html,
+body,
+#app,
+#dockview-root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--editor-bg);
+  color: var(--editor-text);
+}
+
+#dockview-root {
+  background: var(--editor-bg);
+}
+
+#dockview-root.dv-theme-abyss {
+  --dv-color-abyss-dark: #0c1118;
+  --dv-color-abyss: #111821;
+  --dv-color-abyss-light: #151f2b;
+  --dv-color-abyss-lighter: #243346;
+  --dv-color-abyss-primary-text: var(--editor-text);
+  --dv-color-abyss-secondary-text: var(--editor-muted);
+  --dv-color-abyss-accent: #4ea8ff;
+}
+
+.spark-panel {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  background: linear-gradient(180deg, #101822 0%, #0d141d 100%);
+}
+
+.spark-panel-viewport {
+  overflow: hidden;
+  background: #080b11;
+}
+
+.spark-panel-viewport canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.spark-panel-controls {
+  padding: 10px;
+}
+
+.spark-panel-controls #panel {
+  position: static;
+  width: 100%;
+  max-height: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  border-radius: 0;
+  backdrop-filter: none;
+}
+
+.spark-panel-controls #show-panel-btn {
+  position: static;
+  margin-top: 8px;
+}
+
+.spark-panel-controls #panel input,
+.spark-panel-controls #panel select,
+.spark-panel-controls #panel button,
+.spark-panel-controls #show-panel-btn {
+  border: 1px solid var(--editor-border);
+  background: #0f1823;
+}
+
+.spark-panel-controls #panel .section {
+  border-color: var(--editor-border);
+  background: #0f1722;
+}
+
+.spark-panel-controls #panel .light-row,
+.spark-panel-controls #panel .outliner-item,
+.spark-panel-controls #panel #outliner-list > * {
+  border-color: var(--editor-border);
+  background: #101a26;
+}
+
+.spark-panel-hierarchy,
+.spark-panel-inspector,
+.spark-panel-console {
+  padding: 10px;
+}
+
+.spark-empty {
+  color: var(--editor-muted);
+  font-size: 0.9rem;
+}
+
+.spark-tree {
+  list-style: none;
+  margin: 0;
+  padding-left: 14px;
+}
+
+.spark-tree-item {
+  margin: 4px 0;
+}
+
+.spark-node-summary {
+  list-style: none;
+}
+
+.spark-node-summary::-webkit-details-marker {
+  display: none;
+}
+
+.spark-node-row {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--editor-border);
+  background: #0f1823;
+  border-radius: 6px;
+  color: var(--editor-text);
+  padding: 6px 8px;
+  display: grid;
+  gap: 4px;
+}
+
+.spark-node-row.selected {
+  border-color: var(--editor-accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--editor-accent) 45%, transparent);
+}
+
+.spark-node-path {
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.spark-node-type {
+  justify-self: start;
+  font-size: 0.72rem;
+  color: #8bb4da;
+  background: rgba(110, 193, 255, 0.12);
+  border: 1px solid rgba(110, 193, 255, 0.35);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.spark-node-lod {
+  font-size: 0.72rem;
+  color: var(--editor-muted);
+}
+
+.spark-console {
+  height: 100%;
+  overflow: auto;
+}
+
+.spark-console-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  font-family: 'IBM Plex Mono', 'SFMono-Regular', Menlo, monospace;
+  font-size: 0.75rem;
+}
+
+.spark-console-list li {
+  border: 1px solid var(--editor-border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: #0f1722;
+  color: var(--editor-muted);
+}
+
+.tp-dfwv {
+  width: 100%;
+}
+
+.tp-rotv,
+.tp-fldv {
+  background: #101822;
+}

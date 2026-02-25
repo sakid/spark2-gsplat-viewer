@@ -2,22 +2,34 @@ import '../css/style.css';
 import { createEventBus } from '../utils/eventBus';
 import { createStatusReporter } from './internal/status';
 import { SceneManager } from './SceneManager';
+import { initDockviewEditor } from '../ui/dockview-setup.js';
 
 // NEW PROXY ANIMATION
 async function bootstrap() {
-  const container = document.getElementById('scene-container');
-  const statusElement = document.getElementById('status');
-  if (!(container instanceof HTMLElement)) {
-    throw new Error('Missing #scene-container element.');
+  const app = document.getElementById('app');
+  if (!(app instanceof HTMLElement)) {
+    throw new Error('Missing #app element.');
   }
 
+  const bootstrapContainer = document.createElement('div');
+  bootstrapContainer.id = 'scene-container';
+  bootstrapContainer.style.width = '100%';
+  bootstrapContainer.style.height = '100%';
+
+  const bootstrapStatus = document.createElement('p');
+  bootstrapStatus.role = 'status';
+
+  app.replaceChildren(bootstrapContainer, bootstrapStatus);
+
   const eventBus = createEventBus();
-  const statusReporter = createStatusReporter(statusElement);
+  const statusReporter = createStatusReporter(bootstrapStatus);
   statusReporter.setStatus('Initializing SPARK 2.0 proxy-driven engine...', 'info');
 
-  const sceneManager = new SceneManager({ container, eventBus, statusReporter });
+  const sceneManager = new SceneManager({ container: bootstrapContainer, eventBus, statusReporter });
   await sceneManager.init();
-  const canvas = sceneManager.renderer?.domElement ?? null;
+  const disposeEditor = initDockviewEditor(sceneManager, eventBus);
+  const canvas = sceneManager.getCanvas();
+
   if (import.meta.env.DEV) {
     window.__SPARK2_DEBUG__ = { sceneManager, eventBus };
   }
@@ -49,8 +61,17 @@ async function bootstrap() {
   ];
 
   const onResize = () => {
+    const canvasParent = sceneManager.getCanvas()?.parentElement;
+    if (canvasParent instanceof HTMLElement) {
+      const width = Math.max(canvasParent.clientWidth, 1);
+      const height = Math.max(canvasParent.clientHeight, 1);
+      sceneManager.onResize(width, height);
+      eventBus.emit('dom:resize', { width, height });
+      return;
+    }
+
     sceneManager.resize();
-    eventBus.emit('dom:resize', { width: container.clientWidth, height: container.clientHeight });
+    eventBus.emit('dom:resize', { width: bootstrapContainer.clientWidth, height: bootstrapContainer.clientHeight });
   };
   window.addEventListener('resize', onResize);
   disposers.push(() => window.removeEventListener('resize', onResize));
@@ -66,6 +87,7 @@ async function bootstrap() {
 
   window.addEventListener('beforeunload', () => {
     for (const dispose of disposers) dispose();
+    disposeEditor?.();
     sceneManager.dispose();
     if (import.meta.env.DEV && window.__SPARK2_DEBUG__) {
       delete window.__SPARK2_DEBUG__;

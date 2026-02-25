@@ -37,7 +37,8 @@ export class EnvironmentSplat {
       ['environment:proxyAnimSpeed', (speed) => this.external?.animator.setSpeed(speed)],
       ['environment:proxyAnimRestart', () => this.external?.animator.restart()],
       ['environment:proxyCollisionMode', (mode) => { this.proxyCollisionMode = mode; this.external?.setCollisionMode(mode); }],
-      ['environment:proxyDeformSplat', (enabled) => { this.proxyDeformSplat = Boolean(enabled); this.external?.setDeformEnabled(this.proxyDeformSplat, this.splatMesh); }]
+      ['environment:proxyDeformSplat', (enabled) => { this.proxyDeformSplat = Boolean(enabled); this.external?.setDeformEnabled(this.proxyDeformSplat, this.splatMesh); }],
+      ['environment:requestProxyClipList', () => this.emitProxyClipList()]
     ].forEach(([event, handler]) => on(event, handler));
     await this.loadDefault();
     try { await this.loadProxy(await fetchAssetAsFile(DEFAULT_BOOT_PROXY_URL, 'sean_proxy_animated.glb'), { forceAutoAlign: true }); setLoadedName('proxy-loaded-name', 'Loaded: sean_proxy_animated.glb'); } catch {}
@@ -138,6 +139,7 @@ export class EnvironmentSplat {
     this.context.replaceColliders(this.colliderOwner, []);
     this.context.setVoxelCollisionData(null); this.voxelData = null;
   }
+  emitProxyClipList() { this.context?.eventBus?.emit('environment:proxyClipList', this.external?.clipNames ?? []); }
   clear() { removeObject(this.context.scene, this.splatMesh); this.splatMesh?.dispose?.(); this.splatMesh = null; this.transforms.clearSplat(); this.removeProxy(); }
   update(delta) { this.external?.update(delta); }
   dispose() { for (const unbind of this.unsubscribers.splice(0)) unbind(); this.external?.dispose(); this.external = null; this.clear(); }

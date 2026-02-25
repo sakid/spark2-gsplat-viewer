@@ -1,7 +1,10 @@
 // NEW PROXY ANIMATION
 import { bindProxyUi } from './proxyUiBindings';
-function byId(id) {
-  return document.getElementById(id) ?? null;
+function byId(id, root = document) {
+  if (root && typeof root.querySelector === 'function') {
+    return root.querySelector(`#${id}`) ?? null;
+  }
+  return null;
 }
 function on(element, event, handler, disposers) {
   if (!element) return;
@@ -9,19 +12,19 @@ function on(element, event, handler, disposers) {
   disposers.push(() => element.removeEventListener(event, handler));
 }
 
-function setMovementControlsVisible(enabled) {
-  document.querySelectorAll('.movement-controls').forEach((node) => {
+function setMovementControlsVisible(enabled, root = document) {
+  root.querySelectorAll?.('.movement-controls').forEach((node) => {
     node.style.display = enabled ? '' : 'none';
   });
 }
 
-function bindExclusiveModes(eventBus, disposers) {
+function bindExclusiveModes(eventBus, disposers, root = document) {
   const entries = [
     { id: 'light-edit-mode', mode: 'light-edit', event: 'lights:editMode' },
     { id: 'proxy-edit-mode', mode: 'proxy-edit', event: 'environment:proxyEditMode' },
     { id: 'voxel-edit-mode', mode: 'voxel-edit', event: 'environment:voxelEditMode' },
     { id: 'outliner-edit-mode', mode: 'outliner-edit', event: 'environment:outlinerEditMode' }
-  ].map((entry) => ({ ...entry, input: byId(entry.id) }));
+  ].map((entry) => ({ ...entry, input: byId(entry.id, root) }));
 
   const setMode = (mode) => {
     for (const entry of entries) {
@@ -49,44 +52,45 @@ function bindExclusiveModes(eventBus, disposers) {
   } else setMode(initial);
 }
 
-function panelToggle(disposers) {
-  const panel = byId('panel');
-  const hide = byId('hide-panel-btn');
-  const show = byId('show-panel-btn');
+function panelToggle(disposers, root = document) {
+  const panel = byId('panel', root);
+  const hide = byId('hide-panel-btn', root);
+  const show = byId('show-panel-btn', root);
   on(hide, 'click', () => { if (panel) panel.hidden = true; if (show) show.hidden = false; }, disposers);
   on(show, 'click', () => { if (panel) panel.hidden = false; if (show) show.hidden = true; }, disposers);
 }
 
-export function bindUi(eventBus) {
+export function bindUi(eventBus, root = document) {
   const disposers = [];
-  const splatInput = byId('file-input');
-  const loadButton = byId('load-btn');
-  const clearButton = byId('clear-btn');
-  const proxyInput = byId('proxy-file-input');
-  const realignProxy = byId('realign-proxy-btn');
-  const proxyFlipUpDown = byId('proxy-flip-updown');
-  const proxyMirrorX = byId('proxy-mirror-x');
-  const proxyMirrorZ = byId('proxy-mirror-z');
-  const generateVoxel = byId('generate-voxel-btn');
-  const exportVoxelGlb = byId('export-voxel-glb-btn');
-  const showProxy = byId('show-proxy-mesh');
-  const collisionEnabled = byId('collision-enabled');
-  const flipUpDown = byId('flip-updown');
-  const flipLeftRight = byId('flip-leftright');
-  const qualityImproved = byId('quality-improved');
-  const qualityMaxDetail = byId('quality-max-detail');
-  const showLightHelpers = byId('show-light-helpers');
-  const showLightGizmos = byId('show-light-gizmos');
-  const showMovementControls = byId('show-movement-controls');
-  const lightingProbes = byId('show-lighting-probes');
-  const physicallyCorrect = byId('physically-correct-lights');
-  const shadowsEnabled = byId('shadows-enabled');
-  const toneMapping = byId('tone-mapping');
-  const toneExposure = byId('tone-mapping-exposure');
+  const splatInput = byId('file-input', root);
+  const loadButton = byId('load-btn', root);
+  const clearButton = byId('clear-btn', root);
+  const proxyInput = byId('proxy-file-input', root);
+  const realignProxy = byId('realign-proxy-btn', root);
+  const proxyFlipUpDown = byId('proxy-flip-updown', root);
+  const proxyMirrorX = byId('proxy-mirror-x', root);
+  const proxyMirrorZ = byId('proxy-mirror-z', root);
+  const generateVoxel = byId('generate-voxel-btn', root);
+  const exportVoxelGlb = byId('export-voxel-glb-btn', root);
+  const showProxy = byId('show-proxy-mesh', root);
+  const collisionEnabled = byId('collision-enabled', root);
+  const flipUpDown = byId('flip-updown', root);
+  const flipLeftRight = byId('flip-leftright', root);
+  const qualityImproved = byId('quality-improved', root);
+  const qualityMaxDetail = byId('quality-max-detail', root);
+  const showLightHelpers = byId('show-light-helpers', root);
+  const showLightGizmos = byId('show-light-gizmos', root);
+  const showMovementControls = byId('show-movement-controls', root);
+  const lightingProbes = byId('show-lighting-probes', root);
+  const physicallyCorrect = byId('physically-correct-lights', root);
+  const shadowsEnabled = byId('shadows-enabled', root);
+  const toneMapping = byId('tone-mapping', root);
+  const toneExposure = byId('tone-mapping-exposure', root);
+  const outlinerFocus = byId('outliner-focus-btn', root);
 
-  panelToggle(disposers);
-  bindExclusiveModes(eventBus, disposers);
-  bindProxyUi(eventBus, disposers);
+  panelToggle(disposers, root);
+  bindExclusiveModes(eventBus, disposers, root);
+  bindProxyUi(eventBus, disposers, root);
 
   on(loadButton, 'click', () => {
     const file = splatInput?.files?.[0] ?? null;
@@ -111,10 +115,11 @@ export function bindUi(eventBus) {
   on(showLightGizmos, 'change', () => eventBus.emit('lights:showGizmos', Boolean(showLightGizmos?.checked)), disposers);
   on(showMovementControls, 'change', () => {
     const enabled = Boolean(showMovementControls?.checked);
-    setMovementControlsVisible(enabled);
+    setMovementControlsVisible(enabled, root);
     eventBus.emit('lights:showMovementControls', enabled);
   }, disposers);
   on(lightingProbes, 'change', () => eventBus.emit('lights:showProbes', Boolean(lightingProbes?.checked)), disposers);
+  on(outlinerFocus, 'click', () => eventBus.emit('selection:focusRequested'), disposers);
 
   const emitLighting = () => eventBus.emit('lights:rendererSettings', {
     physicallyCorrectLights: Boolean(physicallyCorrect?.checked),
@@ -133,12 +138,12 @@ export function bindUi(eventBus) {
   eventBus.emit('environment:proxyMirrorX', Boolean(proxyMirrorX?.checked));
   eventBus.emit('environment:proxyMirrorZ', Boolean(proxyMirrorZ?.checked));
   eventBus.emit('environment:showProxy', Boolean(showProxy?.checked));
-  eventBus.emit('controls:collision', collisionEnabled ? Boolean(collisionEnabled.checked) : true);
+  eventBus.emit('controls:collision', collisionEnabled ? Boolean(collisionEnabled.checked) : false);
   eventBus.emit('quality:improved', Boolean(qualityImproved?.checked));
   eventBus.emit('quality:maxDetail', Boolean(qualityMaxDetail?.checked));
   eventBus.emit('lights:showHelpers', showLightHelpers ? Boolean(showLightHelpers.checked) : true);
   eventBus.emit('lights:showGizmos', showLightGizmos ? Boolean(showLightGizmos.checked) : true);
-  setMovementControlsVisible(showMovementControls ? Boolean(showMovementControls.checked) : true);
+  setMovementControlsVisible(showMovementControls ? Boolean(showMovementControls.checked) : true, root);
   eventBus.emit('lights:showMovementControls', showMovementControls ? Boolean(showMovementControls.checked) : true);
   eventBus.emit('lights:showProbes', lightingProbes ? Boolean(lightingProbes.checked) : true);
   emitLighting();

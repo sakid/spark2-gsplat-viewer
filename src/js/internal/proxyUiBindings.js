@@ -1,5 +1,8 @@
-function byId(id) {
-  return document.getElementById(id) ?? null;
+function byId(id, root = document) {
+  if (root && typeof root.querySelector === 'function') {
+    return root.querySelector(`#${id}`) ?? null;
+  }
+  return null;
 }
 
 function on(element, event, handler, disposers) {
@@ -9,13 +12,13 @@ function on(element, event, handler, disposers) {
 }
 
 // NEW PROXY ANIMATION
-export function bindProxyUi(eventBus, disposers) {
-  const animClip = byId('proxy-anim-clip');
-  const animPlay = byId('proxy-anim-play');
-  const animSpeed = byId('proxy-anim-speed');
-  const animRestart = byId('proxy-anim-restart');
-  const collisionMode = byId('proxy-collision-mode');
-  const deformSplat = byId('proxy-deform-splat');
+export function bindProxyUi(eventBus, disposers, root = document) {
+  const animClip = byId('proxy-anim-clip', root);
+  const animPlay = byId('proxy-anim-play', root);
+  const animSpeed = byId('proxy-anim-speed', root);
+  const animRestart = byId('proxy-anim-restart', root);
+  const collisionMode = byId('proxy-collision-mode', root);
+  const deformSplat = byId('proxy-deform-splat', root);
 
   const updateClipOptions = (clips) => {
     if (!animClip) return;
@@ -40,6 +43,7 @@ export function bindProxyUi(eventBus, disposers) {
 
   const unsubscribeClipList = eventBus.on('environment:proxyClipList', updateClipOptions);
   disposers.push(unsubscribeClipList);
+  eventBus.emit('environment:requestProxyClipList');
   on(animPlay, 'change', () => eventBus.emit('environment:proxyAnimPlay', Boolean(animPlay?.checked)), disposers);
   on(animClip, 'change', () => eventBus.emit('environment:proxyAnimClip', Number(animClip?.value ?? 0)), disposers);
   on(animSpeed, 'input', () => eventBus.emit('environment:proxyAnimSpeed', Number(animSpeed?.value ?? 1)), disposers);
