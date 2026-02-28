@@ -11,7 +11,6 @@ import {
   loadSceneSlot,
   saveSceneSlot,
   triggerSceneDownload,
-  type SceneCameraV1,
   type SceneFileV2,
   type SceneLightV2,
   type SceneSplatRefV1,
@@ -26,7 +25,6 @@ import {
   createLightReconcileState,
   defaultLightsToSceneLights,
   generateLightId,
-  getAdaptiveSnapForDistance,
   getLightNode,
   getLightObjectForGizmo,
   hasMatchingSplatRef,
@@ -42,6 +40,11 @@ import { generateVoxelMesh } from './viewer/voxelizer';
 import { VoxelEditState } from './viewer/voxelEditState';
 import type { SparkModuleLike } from './spark/previewAdapter';
 import { createExportableVoxelMesh, exportObjectAsGlb, exportObjectsAsGlb } from './export/gltfExport';
+import { createLightingProbeRig, adaptiveTranslationSnap } from './app/lighting';
+import { createNoSparkModule } from './app/bootstrap';
+import { getExtension } from './app/outliner';
+import { applySceneCamera, toSceneCamera } from './app/sceneSlots';
+import { smoothstep } from './app/voxelEditing';
 
 declare global {
   interface Window {
@@ -77,81 +80,8 @@ interface AppState {
   voxelEditMode: boolean;
 }
 
-function getExtension(name: string): string {
-  const ext = name.toLowerCase().split('.').pop();
-  return ext ?? '';
-}
-
 const MAX_PROXY_FILE_BYTES = 2 * 1024 * 1024 * 1024; // 2 GiB hard stop
 const MAX_OBJ_PROXY_FILE_BYTES = 512 * 1024 * 1024; // 512 MiB practical browser limit for OBJ
-
-function toSceneCamera(camera: THREE.PerspectiveCamera): SceneCameraV1 {
-  return {
-    position: [camera.position.x, camera.position.y, camera.position.z],
-    quaternion: [camera.quaternion.x, camera.quaternion.y, camera.quaternion.z, camera.quaternion.w],
-    fov: camera.fov,
-    near: camera.near,
-    far: camera.far
-  };
-}
-
-function applySceneCamera(camera: THREE.PerspectiveCamera, sceneCamera: SceneCameraV1): void {
-  camera.position.set(...sceneCamera.position);
-  camera.quaternion.set(...sceneCamera.quaternion);
-  camera.fov = sceneCamera.fov;
-  camera.near = sceneCamera.near;
-  camera.far = sceneCamera.far;
-  camera.updateProjectionMatrix();
-}
-
-function createLightingProbeRig(): THREE.Group {
-  const probeRoot = new THREE.Group();
-  probeRoot.name = 'lighting-probe-rig';
-
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(10, 10),
-    new THREE.MeshStandardMaterial({ color: '#3f3f46', roughness: 0.95, metalness: 0.02 })
-  );
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.y = -0.85;
-  ground.receiveShadow = true;
-  probeRoot.add(ground);
-
-  const matte = new THREE.Mesh(
-    new THREE.SphereGeometry(0.45, 24, 20),
-    new THREE.MeshStandardMaterial({ color: '#cbd5e1', roughness: 0.9, metalness: 0.05 })
-  );
-  matte.position.set(-0.85, -0.4, 0);
-  matte.castShadow = true;
-  matte.receiveShadow = true;
-  probeRoot.add(matte);
-
-  const glossy = new THREE.Mesh(
-    new THREE.SphereGeometry(0.45, 24, 20),
-    new THREE.MeshStandardMaterial({ color: '#f8fafc', roughness: 0.12, metalness: 0.9 })
-  );
-  glossy.position.set(0.85, -0.4, 0.15);
-  glossy.castShadow = true;
-  glossy.receiveShadow = true;
-  probeRoot.add(glossy);
-
-  return probeRoot;
-}
-
-function adaptiveTranslationSnap(camera: THREE.Camera, object: THREE.Object3D): number {
-  const position = new THREE.Vector3();
-  object.getWorldPosition(position);
-  const distance = camera.position.distanceTo(position);
-  return getAdaptiveSnapForDistance(distance);
-}
-
-function smoothstep(edge0: number, edge1: number, x: number): number {
-  if (edge0 === edge1) {
-    return x < edge0 ? 0 : 1;
-  }
-  const t = THREE.MathUtils.clamp((x - edge0) / (edge1 - edge0), 0, 1);
-  return t * t * (3 - 2 * t);
-}
 
 async function bootstrap(): Promise<void> {
   const panel = createPanel();
@@ -159,41 +89,6 @@ async function bootstrap(): Promise<void> {
 
   const params = new URLSearchParams(window.location.search);
   const noSpark = params.get('noSpark') === '1';
-
-  const createNoSparkModule = (): SparkModuleLike => {
-    const moduleObject = {
-      NewSparkRenderer: class DummySparkRenderer extends THREE.Object3D {
-        enableLod = true;
-        lodSplatCount = 0;
-        lodSplatScale = 1;
-        dispose() {}
-      },
-      SplatMesh: class DummySplatMesh extends THREE.Object3D {},
-      SplatEdit: class DummySplatEdit extends THREE.Object3D {
-        addSdf() {}
-        removeSdf() {}
-      },
-      SplatEditSdf: class DummySplatEditSdf extends THREE.Object3D {
-        invert = false;
-        opacity = 1;
-        color = new THREE.Color(0xffffff);
-        displace = new THREE.Vector3();
-        radius = 0;
-        constructor(_options = {}) {
-          super();
-        }
-      },
-      SplatModifier: class DummySplatModifier {
-        modifier: unknown;
-        constructor(modifier: unknown) {
-          this.modifier = modifier;
-        }
-      },
-      transcodeSpz: async () => ({ fileBytes: new Uint8Array() })
-    };
-
-    return moduleObject as unknown as SparkModuleLike;
-  };
 
   const sparkModule: SparkModuleLike = noSpark ? createNoSparkModule() : await loadSparkModule();
 
@@ -211,7 +106,18 @@ async function bootstrap(): Promise<void> {
     panel.setStatus(message, 'error');
   });
 
-  if (import.meta.env.DEV || noSpark) {
+  try {
+    const vrButton = await viewer.createVrButton();
+    if (vrButton) {
+      panel.setVrButton(vrButton);
+      document.body.appendChild(vrButton);
+    }
+  } catch (e) {
+    console.warn('VR button creation failed:', e);
+  }
+
+  // Expose viewer globally for debugging/testing
+  if (noSpark || import.meta.env.DEV) {
     window.__SPARK2_VIEWER__ = viewer;
   }
 

@@ -2,13 +2,9 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
+import { VRButton } from 'three/examples/jsm/webxr/VRButton.js';
 import { GLTFLoader, OBJLoader } from 'three-stdlib';
-import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 import { MeshoptDecoder } from 'meshoptimizer';
-
-THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
-THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
-THREE.Mesh.prototype.raycast = acceleratedRaycast;
 import {
   assertSparkPreviewApi,
   createSparkRenderer,
@@ -19,9 +15,11 @@ import {
   type SplatEditSdfLike,
   type SplatModifierLike
 } from '../spark/previewAdapter';
-import type { SceneSettingsV2, SceneToneMapping } from '../scene/sceneState';
+import type { SceneSettingsV2 } from '../scene/sceneState';
 import type { VoxelEditState } from './voxelEditState';
 import type { VoxelData } from './voxelizer';
+import { installBvhRaycastExtensions } from './setup/bvh';
+import { resolveToneMapping } from './setup/renderer';
 
 export type InteractionMode = 'view' | 'light-edit' | 'voxel-edit' | 'proxy-edit' | 'outliner-edit';
 
@@ -81,19 +79,10 @@ export interface ViewerContext {
     resolution: number;
     origin: { x: number; y: number; z: number };
   };
+  isVrSupported: () => Promise<boolean>;
+  createVrButton: () => Promise<HTMLElement | null>;
+  isVrSessionActive: () => boolean;
   dispose: () => void;
-}
-
-function resolveToneMapping(mode: SceneToneMapping): THREE.ToneMapping {
-  if (mode === 'ACESFilmic') {
-    return THREE.ACESFilmicToneMapping;
-  }
-
-  if (mode === 'Neutral') {
-    return THREE.NeutralToneMapping;
-  }
-
-  return THREE.NoToneMapping;
 }
 
 export function initViewer(
@@ -101,6 +90,7 @@ export function initViewer(
   sparkModule: SparkModuleLike,
   onContextLost?: (message: string) => void
 ): ViewerContext {
+  installBvhRaycastExtensions();
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#030712');
 
@@ -112,7 +102,41 @@ export function initViewer(
   renderer.setSize(container.clientWidth, container.clientHeight);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.xr.enabled = true;
+  renderer.xr.setReferenceSpaceType('local');
   container.appendChild(renderer.domElement);
+
+  let vrSessionActive = false;
+  renderer.xr.addEventListener('sessionstart', () => {
+    vrSessionActive = true;
+    if (pointerLockControls.isLocked) {
+      pointerLockControls.unlock();
+    }
+    orbitControls.enabled = false;
+  });
+  renderer.xr.addEventListener('sessionend', () => {
+    vrSessionActive = false;
+  });
+
+  const isVrSupported = async (): Promise<boolean> => {
+    if (!navigator.xr) return false;
+    try {
+      return await navigator.xr.isSessionSupported('immersive-vr');
+    } catch {
+      return false;
+    }
+  };
+
+  const createVrButton = async (): Promise<HTMLElement | null> => {
+    try {
+      const supported = await isVrSupported();
+      if (!supported) return null;
+      const vrButton = VRButton.createButton(renderer);
+      return vrButton;
+    } catch {
+      return null;
+    }
+  };
 
   const pointerLockControls = new PointerLockControls(camera, renderer.domElement);
   const orbitControls = new OrbitControls(camera, renderer.domElement);
@@ -193,6 +217,7 @@ export function initViewer(
   const MAX_PROXY_TRIANGLES_FOR_VISIBLE_DEBUG = 6_000_000;
   let proxyTriangleCount = 0;
   let proxyDebugMaterial: THREE.Material | null = null;
+  const proxyVertexColorMaterials: THREE.Material[] = [];
 
   const tempForward = new THREE.Vector3();
   const tempRight = new THREE.Vector3();
@@ -414,9 +439,18 @@ export function initViewer(
             tempNormal.normalize();
             tempResolve.copy(tempNormal).transformDirection(mesh.matrixWorld).normalize().multiplyScalar(depth);
             maxPenetration = depth;
-          }
-        });
+        }
+      });
+      proxyMesh = null;
+      colliderMeshes = [];
+      proxyTriangleCount = 0;
+      if (proxyDebugMaterial) {
+        proxyDebugMaterial.dispose();
+        proxyDebugMaterial = null;
       }
+      proxyVertexColorMaterials.forEach(mat => mat.dispose());
+      proxyVertexColorMaterials.length = 0;
+    }
 
       if (maxPenetration <= 0.001) {
         break;
@@ -740,15 +774,15 @@ export function initViewer(
     const extSource = (fileName ?? url).split('?')[0].split('#')[0];
     const ext = extSource.includes('.') ? extSource.split('.').pop()!.toLowerCase() : '';
 
-	    if (ext === 'glb' || ext === 'gltf') {
-	      const loader = new GLTFLoader();
-	      // Needed for proxies produced by gltfpack (-c) and other EXT_meshopt_compression assets.
-	      loader.setMeshoptDecoder(MeshoptDecoder);
-	      const gltf = await loader.loadAsync(url);
-	      proxyMesh = gltf.scene;
-	    } else if (ext === 'obj') {
-	      const loader = new OBJLoader();
-	      proxyMesh = await loader.loadAsync(url);
+    if (ext === 'glb' || ext === 'gltf') {
+      const loader = new GLTFLoader();
+      // Needed for proxies produced by gltfpack (-c) and other EXT_meshopt_compression assets.
+      loader.setMeshoptDecoder(MeshoptDecoder);
+      const gltf = await loader.loadAsync(url);
+      proxyMesh = gltf.scene;
+    } else if (ext === 'obj') {
+      const loader = new OBJLoader();
+      proxyMesh = await loader.loadAsync(url);
     } else {
       throw new Error(`Unsupported proxy mesh format "${ext || 'unknown'}". Supported: .glb, .gltf, .obj`);
     }
@@ -762,10 +796,32 @@ export function initViewer(
       wireframe: false
     });
 
+    const hasVertexColors = (geometry: THREE.BufferGeometry): boolean => {
+      return geometry.getAttribute('color') !== undefined;
+    };
+
+    const getProxyMaterial = (geometry: THREE.BufferGeometry): THREE.Material => {
+      if (hasVertexColors(geometry)) {
+        const mat = new THREE.MeshBasicMaterial({
+          vertexColors: true,
+          transparent: true,
+          opacity: 0.9,
+          depthWrite: false,
+          wireframe: false
+        });
+        proxyVertexColorMaterials.push(mat);
+        return mat;
+      }
+      return proxyDebugMaterial!;
+    };
+
     // Prevent the proxy mesh from fighting with splat colors or shadows.
     proxyMesh.traverse((child) => {
       if (child instanceof THREE.Mesh) {
-        child.material = proxyDebugMaterial;
+        const mat = child.geometry instanceof THREE.BufferGeometry 
+          ? getProxyMaterial(child.geometry) 
+          : proxyDebugMaterial;
+        child.material = mat;
         child.castShadow = false;
         child.receiveShadow = false;
 
@@ -1103,6 +1159,9 @@ export function initViewer(
     debugStep,
     debugGetState,
     debugVoxelProbe,
+    isVrSupported,
+    createVrButton,
+    isVrSessionActive: (): boolean => vrSessionActive,
     dispose: (): void => {
       if (unregisterVoxelEditState) {
         unregisterVoxelEditState();
