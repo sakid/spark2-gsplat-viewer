@@ -3,6 +3,7 @@ dist/
 .vite/
 *.log
 .DS_Store
-public/assets/splats/*.spz
-public/assets/proxies/*.glb
+# Large assets tracked with Git LFS
+# public/assets/splats/*.spz
+# public/assets/proxies/*.glb
 public/assets/dialog/
