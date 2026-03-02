@@ -7,3 +7,7 @@ dist/
 # public/assets/splats/*.spz
 # public/assets/proxies/*.glb
 public/assets/dialog/
+
+# Dolt database files (added by bd init)
+.dolt/
+*.db
