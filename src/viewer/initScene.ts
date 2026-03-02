@@ -20,6 +20,7 @@ import type { VoxelEditState } from './voxelEditState';
 import type { VoxelData } from './voxelizer';
 import { installBvhRaycastExtensions } from './setup/bvh';
 import { resolveToneMapping } from './setup/renderer';
+import { detectWebGPUSupport, type RenderBackendCapabilities } from './unifiedRenderer';
 
 export type InteractionMode = 'view' | 'light-edit' | 'voxel-edit' | 'proxy-edit' | 'outliner-edit';
 
@@ -37,6 +38,7 @@ export interface ViewerContext {
   pointerLockControls: PointerLockControls;
   orbitControls: OrbitControls;
   transformControls: TransformControls;
+  renderBackend: RenderBackendCapabilities | null;
 
   setProxyMesh: (url: string | null, fileName?: string | null) => Promise<void>;
   getProxyMesh: () => THREE.Object3D | null;
@@ -44,6 +46,7 @@ export interface ViewerContext {
   setVoxelCollisionData: (data: VoxelData | null) => void;
   setCollisionEnabled: (enabled: boolean) => void;
   setShowProxyMesh: (show: boolean) => { applied: boolean; reason?: string };
+  setDynamicResolution: (enabled: boolean) => void;
   raycastVoxel: (event: MouseEvent) => number | null;
 
   setPointerLockEnabled: (enabled: boolean) => void;
@@ -105,6 +108,54 @@ export function initViewer(
   renderer.xr.enabled = true;
   renderer.xr.setReferenceSpaceType('local');
   container.appendChild(renderer.domElement);
+
+  const DYNAMIC_RESOLUTION = {
+    enabled: false,
+    minFps: 30,
+    maxFps: 60,
+    scaleFactors: [1.0, 0.875, 0.75, 0.625, 0.5],
+    currentIndex: 0,
+    fpsHistory: [] as number[],
+    historySize: 60,
+    lastFrameTime: performance.now(),
+    checkIntervalMs: 500
+  };
+
+  let renderBackend: RenderBackendCapabilities | null = null;
+
+  detectWebGPUSupport().then(({ supported, adapter }) => {
+    if (supported && adapter) {
+      renderBackend = {
+        backend: 'webgpu',
+        maxTextureSize: 8192,
+        maxComputeWorkgroupSize: 256,
+        supportsComputeShaders: true,
+        supportsStorageBuffers: true,
+        supportsRaytracing: false
+      };
+      console.log('[Renderer] WebGPU available - splat rendering can leverage GPU compute');
+    } else {
+      renderBackend = {
+        backend: 'webgl',
+        maxTextureSize: renderer.capabilities.maxTextureSize,
+        maxComputeWorkgroupSize: 0,
+        supportsComputeShaders: false,
+        supportsStorageBuffers: false,
+        supportsRaytracing: false
+      };
+      console.log('[Renderer] Using WebGL2 backend');
+    }
+  }).catch(() => {
+    renderBackend = {
+      backend: 'webgl',
+      maxTextureSize: renderer.capabilities.maxTextureSize,
+      maxComputeWorkgroupSize: 0,
+      supportsComputeShaders: false,
+      supportsStorageBuffers: false,
+      supportsRaytracing: false
+    };
+    console.log('[Renderer] Using WebGL2 backend');
+  });
 
   let vrSessionActive = false;
   renderer.xr.addEventListener('sessionstart', () => {
@@ -947,6 +998,14 @@ export function initViewer(
     return { applied: true };
   };
 
+  const setDynamicResolution = (enabled: boolean): void => {
+    DYNAMIC_RESOLUTION.enabled = enabled;
+    if (!enabled) {
+      DYNAMIC_RESOLUTION.currentIndex = 0;
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    }
+  };
+
   window.addEventListener('resize', onResize);
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('keyup', onKeyUp);
@@ -960,6 +1019,32 @@ export function initViewer(
       orbitControls.update();
     }
     renderer.render(scene, camera);
+
+    if (DYNAMIC_RESOLUTION.enabled) {
+      const now = performance.now();
+      const frameMs = now - DYNAMIC_RESOLUTION.lastFrameTime;
+      DYNAMIC_RESOLUTION.lastFrameTime = now;
+      const fps = 1000 / frameMs;
+
+      DYNAMIC_RESOLUTION.fpsHistory.push(fps);
+      if (DYNAMIC_RESOLUTION.fpsHistory.length > DYNAMIC_RESOLUTION.historySize) {
+        DYNAMIC_RESOLUTION.fpsHistory.shift();
+      }
+
+      if (now % DYNAMIC_RESOLUTION.checkIntervalMs < frameMs) {
+        const avgFps = DYNAMIC_RESOLUTION.fpsHistory.reduce((a, b) => a + b, 0) / DYNAMIC_RESOLUTION.fpsHistory.length;
+
+        if (avgFps < DYNAMIC_RESOLUTION.minFps && DYNAMIC_RESOLUTION.currentIndex < DYNAMIC_RESOLUTION.scaleFactors.length - 1) {
+          DYNAMIC_RESOLUTION.currentIndex++;
+          const scale = DYNAMIC_RESOLUTION.scaleFactors[DYNAMIC_RESOLUTION.currentIndex];
+          renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * scale);
+        } else if (avgFps > DYNAMIC_RESOLUTION.maxFps && DYNAMIC_RESOLUTION.currentIndex > 0) {
+          DYNAMIC_RESOLUTION.currentIndex--;
+          const scale = DYNAMIC_RESOLUTION.scaleFactors[DYNAMIC_RESOLUTION.currentIndex];
+          renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * scale);
+        }
+      }
+    }
   });
 
   const debugStep = (deltaTime = 1 / 60): void => {
@@ -1144,12 +1229,14 @@ export function initViewer(
     pointerLockControls,
     orbitControls,
     transformControls,
+    renderBackend,
     setProxyMesh,
     getProxyMesh,
     setVoxelProxy,
     setVoxelCollisionData,
     setCollisionEnabled,
     setShowProxyMesh,
+    setDynamicResolution,
     raycastVoxel,
     setPointerLockEnabled,
     setInteractionMode,
