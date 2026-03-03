@@ -12,6 +12,7 @@ import 'dockview-core/dist/styles/dockview.css';
 import { Outliner } from './outliner.js';
 import { Inspector } from './inspector.js';
 import { ContentBrowser } from './contentBrowser.js';
+import { DialogPanel } from './dialog.js';
 import { LEGACY_CONTROLS_HTML } from './templates/legacyControlsHtml.js';
 
 const LAYOUT_STORAGE_KEY = 'spark-editor-layout-v1';
@@ -82,10 +83,16 @@ const createDefaultLayout = (dockviewApi) => {
     position: { direction: 'below', referencePanel: inspector }
   });
   dockviewApi.addPanel({
+    id: 'dialog',
+    component: 'dialog',
+    title: 'Dialog',
+    position: { direction: 'below', referencePanel: content }
+  });
+  dockviewApi.addPanel({
     id: 'console',
     component: 'console',
     title: 'Console',
-    position: { direction: 'below', referencePanel: content }
+    position: { direction: 'below', referencePanel: hierarchy }
   });
 };
 
@@ -168,6 +175,12 @@ export function initDockviewEditor(sceneManager, eventBus) {
 
           if (options.name === 'console') {
             dispose = createConsolePanel(element, eventBus);
+            return;
+          }
+
+          if (options.name === 'dialog') {
+            const dialog = new DialogPanel({ container: element, eventBus });
+            dispose = () => dialog.dispose();
             return;
           }
 

@@ -105,7 +105,8 @@ body {
 
 .spark-panel-hierarchy,
 .spark-panel-inspector,
-.spark-panel-console {
+.spark-panel-console,
+.spark-panel-dialog {
   padding: 10px;
 }
 
@@ -243,6 +244,57 @@ body {
   padding: 6px 8px;
   background: #0f1722;
   color: var(--editor-muted);
+}
+
+.spark-dialog {
+  display: grid;
+  gap: 10px;
+}
+
+.spark-dialog-idle,
+.spark-dialog-conversation {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--editor-border);
+  border-radius: 8px;
+  background: #0f1722;
+  padding: 10px;
+}
+
+.spark-dialog-speaker,
+.spark-dialog-focus {
+  font-size: 0.86rem;
+  color: var(--editor-accent);
+}
+
+.spark-dialog-text,
+.spark-dialog-hint,
+.spark-dialog-hints {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--editor-muted);
+}
+
+.spark-dialog-choices {
+  display: grid;
+  gap: 6px;
+}
+
+.spark-dialog-choice,
+.spark-dialog-advance,
+.spark-dialog-close {
+  border: 1px solid var(--editor-border);
+  border-radius: 6px;
+  background: #101a26;
+  color: var(--editor-text);
+  padding: 6px 8px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.spark-dialog-footer {
+  display: grid;
+  gap: 6px;
 }
 
 .spark-content-browser {

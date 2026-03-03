@@ -14,6 +14,8 @@ export class DialogPanel {
     this.disposers = [];
     this.dialog = { active: false };
     this.focus = { interactable: null };
+    this.gameState = null;
+    this.levelState = null;
 
     this.root = createEl('div', 'spark-dialog');
     this.container.replaceChildren(this.root);
@@ -22,7 +24,9 @@ export class DialogPanel {
       eventUnsub(eventBus, 'dialog:started', (payload) => { this.dialog = payload ?? { active: true }; this.render(); }),
       eventUnsub(eventBus, 'dialog:updated', (payload) => { this.dialog = payload ?? this.dialog; this.render(); }),
       eventUnsub(eventBus, 'dialog:ended', (payload) => { this.dialog = payload ?? { active: false }; this.render(); }),
-      eventUnsub(eventBus, 'interaction:focusChanged', (payload) => { this.focus = payload ?? { interactable: null }; this.render(); })
+      eventUnsub(eventBus, 'interaction:focusChanged', (payload) => { this.focus = payload ?? { interactable: null }; this.render(); }),
+      eventUnsub(eventBus, 'game:stateChanged', (payload) => { this.gameState = payload ?? null; this.render(); }),
+      eventUnsub(eventBus, 'gameplay:levelState', (payload) => { this.levelState = payload ?? null; this.render(); })
     );
 
     this.render();
@@ -41,9 +45,14 @@ export class DialogPanel {
 
   renderIdle() {
     const wrap = createEl('div', 'spark-dialog-idle');
+    const levelText = this.levelState?.text ? String(this.levelState.text) : null;
+    if (levelText) {
+      wrap.append(createEl('p', 'spark-dialog-hint', levelText));
+    }
     const focus = this.focus?.interactable ?? null;
     if (!focus) {
       wrap.append(createEl('p', 'spark-empty', 'No dialog active.'));
+      wrap.append(this.renderQuestSummary());
       wrap.append(createEl('p', 'spark-dialog-hint', 'Look at an NPC and press E to interact.'));
       return wrap;
     }
@@ -51,8 +60,20 @@ export class DialogPanel {
     const speaker = focus.speakerName ? String(focus.speakerName) : 'Someone';
     const prompt = focus.prompt ? String(focus.prompt) : 'Talk';
     wrap.append(createEl('p', 'spark-dialog-focus', `${speaker}`));
+    wrap.append(this.renderQuestSummary());
     wrap.append(createEl('p', 'spark-dialog-hint', `Press E to ${prompt}.`));
     return wrap;
+  }
+
+  renderQuestSummary() {
+    const quests = this.gameState?.quests ?? null;
+    const sheep = quests?.sheep ?? null;
+    if (!sheep) return createEl('p', 'spark-dialog-hint', 'Quest: talk to Sean to begin.');
+    if (sheep.status === 'completed') return createEl('p', 'spark-dialog-hint', 'Quest: sheep recovered.');
+    const stage = sheep.stage ? String(sheep.stage) : 'active';
+    if (stage === 'find') return createEl('p', 'spark-dialog-hint', 'Quest: find the lost sheep.');
+    if (stage === 'return') return createEl('p', 'spark-dialog-hint', 'Quest: return to Sean.');
+    return createEl('p', 'spark-dialog-hint', `Quest: ${stage}.`);
   }
 
   renderConversation() {
@@ -99,4 +120,3 @@ export class DialogPanel {
     this.container.replaceChildren();
   }
 }
-

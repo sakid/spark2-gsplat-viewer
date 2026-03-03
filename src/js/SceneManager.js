@@ -12,6 +12,7 @@ import { RenderQuality } from './sceneSubjects/RenderQuality';
 import { EnvironmentSplat } from './sceneSubjects/EnvironmentSplat';
 import { ButterflySplat } from './sceneSubjects/ButterflySplat';
 import { DynoEffectSplat } from './sceneSubjects/DynoEffectSplat';
+import { Gameplay } from './sceneSubjects/Gameplay';
 import { stampPrim } from '../ui/prim-utils.js';
 import { createSceneFile, listSceneSlotNames } from './internal/sceneStateBridge.js';
 
@@ -181,7 +182,8 @@ export class SceneManager {
       new RenderQuality(),
       new EnvironmentSplat(),
       new ButterflySplat(),
-      new DynoEffectSplat()
+      new DynoEffectSplat(),
+      new Gameplay()
     ];
 
     const context = {

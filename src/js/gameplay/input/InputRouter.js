@@ -47,7 +47,7 @@ export class InputRouter {
       return;
     }
 
-    if (mode !== 'view') return;
+    if (mode !== 'view' && mode !== 'gameplay') return;
     if (action !== 'Interact') return;
     this.eventBus.emit('input:action', { action });
   }
@@ -56,4 +56,3 @@ export class InputRouter {
     for (const unbind of this.unsubscribers.splice(0)) unbind();
   }
 }
-

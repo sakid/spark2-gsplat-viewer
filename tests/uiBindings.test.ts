@@ -300,4 +300,88 @@ describe('uiBindings workflow controls', () => {
 
     dispose();
   });
+
+  test('wires gameplay level controls and state syncing', () => {
+    const ids = new Map<string, FakeElement>([
+      ['file-input', new FakeElement()],
+      ['splat-loaded-name', new FakeElement()],
+      ['load-btn', new FakeElement()],
+      ['clear-btn', new FakeElement()],
+      ['run-voxel-workflow-btn', new FakeElement()],
+      ['workflow-summary', new FakeElement()],
+      ['proxy-file-input', new FakeElement()],
+      ['realign-proxy-btn', new FakeElement()],
+      ['proxy-flip-updown', new FakeElement()],
+      ['proxy-mirror-x', new FakeElement()],
+      ['proxy-mirror-z', new FakeElement()],
+      ['proxy-align-profile', new FakeElement()],
+      ['generate-voxel-btn', new FakeElement()],
+      ['regenerate-voxel-rig-btn', new FakeElement()],
+      ['export-voxel-glb-btn', new FakeElement()],
+      ['voxel-edit-mode', new FakeElement()],
+      ['view-mode', new FakeElement()],
+      ['show-proxy-mesh', new FakeElement()],
+      ['show-proxy-bones', new FakeElement()],
+      ['show-light-helpers', new FakeElement()],
+      ['show-light-gizmos', new FakeElement()],
+      ['show-lighting-probes', new FakeElement()],
+      ['collision-enabled', new FakeElement()],
+      ['object-edit-mode', new FakeElement()],
+      ['gameplay-level-enabled', new FakeElement()],
+      ['gameplay-start-level-btn', new FakeElement()],
+      ['gameplay-stop-level-btn', new FakeElement()],
+      ['gameplay-reset-progress-btn', new FakeElement()],
+      ['gameplay-level-status', new FakeElement()]
+    ]);
+
+    (ids.get('splat-loaded-name') as FakeElement).textContent = 'Loaded: none';
+    (ids.get('view-mode') as FakeElement).value = 'full';
+
+    const eventBus = createEventBus();
+    const gameplayEnableSpy = vi.fn();
+    const modeSpy = vi.fn();
+    const startSpy = vi.fn();
+    const stopSpy = vi.fn();
+    const resetSpy = vi.fn();
+    eventBus.on('gameplay:enable', gameplayEnableSpy);
+    eventBus.on('controls:mode', modeSpy);
+    eventBus.on('gameplay:startSplatLevel', startSpy);
+    eventBus.on('gameplay:stopSplatLevel', stopSpy);
+    eventBus.on('game:resetRequested', resetSpy);
+
+    const dispose = bindUi(eventBus, rootWith(ids) as any);
+
+    const toggle = ids.get('gameplay-level-enabled') as FakeElement;
+    const start = ids.get('gameplay-start-level-btn') as FakeElement;
+    const stop = ids.get('gameplay-stop-level-btn') as FakeElement;
+    const reset = ids.get('gameplay-reset-progress-btn') as FakeElement;
+    const status = ids.get('gameplay-level-status') as FakeElement;
+
+    toggle.checked = true;
+    toggle.dispatch('change');
+    expect(gameplayEnableSpy).toHaveBeenCalledWith(true);
+    expect(modeSpy).toHaveBeenCalledWith('gameplay');
+
+    eventBus.emit('environment:splatLoaded', { name: 'mesh' });
+    expect(start.disabled).toBe(false);
+
+    start.dispatch('click');
+    expect(startSpy).toHaveBeenCalledTimes(1);
+
+    eventBus.emit('gameplay:levelState', {
+      active: true,
+      text: 'Level active: find the lost sheep.'
+    });
+    expect(toggle.checked).toBe(true);
+    expect(stop.disabled).toBe(false);
+    expect(status.textContent).toContain('find the lost sheep');
+
+    stop.dispatch('click');
+    expect(stopSpy).toHaveBeenCalledTimes(1);
+
+    reset.dispatch('click');
+    expect(resetSpy).toHaveBeenCalledTimes(1);
+
+    dispose();
+  });
 });

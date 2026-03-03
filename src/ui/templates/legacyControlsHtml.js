@@ -43,6 +43,25 @@ export const LEGACY_CONTROLS_HTML = `
     <small id="proxy-loaded-name" class="meta-line">Loaded: none</small>
   </section>
 
+  <section class="section" aria-label="Splat gameplay level">
+    <h2>Splat Gameplay Level</h2>
+    <p class="section-caption">Third-person sheep level with dialog and quest progress.</p>
+
+    <label class="toggle" for="gameplay-level-enabled">
+      <input id="gameplay-level-enabled" type="checkbox" />
+      <span>Enable gameplay mode (third person)</span>
+    </label>
+
+    <div class="row">
+      <button id="gameplay-start-level-btn" type="button">Build Splat Level</button>
+      <button id="gameplay-stop-level-btn" type="button">Stop Level</button>
+    </div>
+
+    <button id="gameplay-reset-progress-btn" type="button">Reset quest/dialog progress</button>
+    <small id="gameplay-level-status" class="meta-line">Level inactive.</small>
+    <small class="meta-line">Controls: WASD move, Shift run, E interact, Space/Enter advance dialog.</small>
+  </section>
+
   <section class="section" aria-label="View and animation">
     <h2>View &amp; Animation</h2>
 

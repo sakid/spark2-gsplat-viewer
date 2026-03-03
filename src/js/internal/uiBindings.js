@@ -26,6 +26,7 @@ function setMovementControlsVisible(enabled, root = document) {
 function bindExclusiveModes(eventBus, disposers, root = document, onModeChange = () => {}) {
   const entries = [
     { id: 'object-edit-mode', mode: 'object-edit', event: 'editor:objectEditMode' },
+    { id: 'gameplay-level-enabled', mode: 'gameplay', event: 'gameplay:enable' },
     { id: 'sheep-gizmo-enabled', mode: 'sheep-edit', event: 'environment:sheepGizmoEnabled' },
     { id: 'voxel-edit-mode', mode: 'voxel-edit', event: 'environment:voxelEditMode' }
   ].map((entry) => ({ ...entry, input: byId(entry.id, root) }));
@@ -76,6 +77,11 @@ export function bindUi(eventBus, root = document) {
   const splatInput = byId('file-input', root);
   const splatLoadedName = byId('splat-loaded-name', root);
   const interactionMode = byId('interaction-mode', root);
+  const gameplayLevelEnabled = byId('gameplay-level-enabled', root);
+  const gameplayStartLevel = byId('gameplay-start-level-btn', root);
+  const gameplayStopLevel = byId('gameplay-stop-level-btn', root);
+  const gameplayResetProgress = byId('gameplay-reset-progress-btn', root);
+  const gameplayLevelStatus = byId('gameplay-level-status', root);
   const loadButton = byId('load-btn', root);
   const clearButton = byId('clear-btn', root);
   const proxyInput = byId('proxy-file-input', root);
@@ -156,6 +162,7 @@ export function bindUi(eventBus, root = document) {
     .trim()
     .toLowerCase();
   let hasSplat = Boolean(initialLoadedText) && initialLoadedText !== 'none';
+  let gameplayLevelActive = false;
 
   const getViewMode = () => (viewMode?.value === 'splats-only' ? 'splats-only' : 'full');
   const isSplatsOnly = () => getViewMode() === 'splats-only';
@@ -166,6 +173,8 @@ export function bindUi(eventBus, root = document) {
     const label =
       mode === 'voxel-edit' ? 'voxel edit'
       : mode === 'object-edit' ? 'object edit'
+      : mode === 'gameplay' ? 'third person gameplay'
+      : mode === 'dialog' ? 'dialog'
       : mode === 'sheep-edit' ? 'sheep gizmo edit'
       : 'view';
     interactionMode.textContent = `Interaction mode: ${label}`;
@@ -245,6 +254,15 @@ export function bindUi(eventBus, root = document) {
     if (editorRedoBtn) editorRedoBtn.disabled = !Boolean(state?.canRedo);
   };
 
+  const applyGameplayLevelState = (state = {}) => {
+    gameplayLevelActive = Boolean(state?.active);
+    if (gameplayLevelEnabled) gameplayLevelEnabled.checked = gameplayLevelActive;
+    if (gameplayLevelStatus) {
+      const text = state?.text ? String(state.text) : gameplayLevelActive ? 'Level active.' : 'Level inactive.';
+      gameplayLevelStatus.textContent = text;
+    }
+  };
+
   const syncWorkflowSummary = () => {
     if (!workflowSummary) return;
     if (proxyKind === 'voxel') {
@@ -290,6 +308,10 @@ export function bindUi(eventBus, root = document) {
     if (regenerateVoxelRig) regenerateVoxelRig.disabled = proxyKind !== 'voxel';
     if (runVoxelWorkflow) runVoxelWorkflow.disabled = !(hasSplat || hasSplatSelection());
     if (exportVoxelGlb) exportVoxelGlb.disabled = proxyKind !== 'voxel';
+    if (gameplayLevelEnabled) gameplayLevelEnabled.disabled = !hasSplat;
+    if (gameplayStartLevel) gameplayStartLevel.disabled = !hasSplat || gameplayLevelActive;
+    if (gameplayStopLevel) gameplayStopLevel.disabled = !gameplayLevelActive;
+    if (gameplayResetProgress) gameplayResetProgress.disabled = !gameplayLevelActive;
     const sheepControls = [
       sheepGizmoEnabled, sheepGizmoTarget, sheepGizmoMode,
       sheepAlignX, sheepAlignY, sheepAlignZ,
@@ -310,6 +332,12 @@ export function bindUi(eventBus, root = document) {
     if (!hasSplat && sheepGizmoEnabled?.checked) {
       sheepGizmoEnabled.checked = false;
       eventBus.emit('environment:sheepGizmoEnabled', false);
+    }
+    if (!hasSplat && gameplayLevelEnabled?.checked) {
+      gameplayLevelEnabled.checked = false;
+      eventBus.emit('gameplay:enable', false);
+      eventBus.emit('controls:mode', 'view');
+      setInteractionModeLabel('view');
     }
     if (voxelEditMode) {
       voxelEditMode.disabled = proxyKind !== 'voxel';
@@ -356,14 +384,20 @@ export function bindUi(eventBus, root = document) {
   const unsubscribeHistoryState = eventBus.on('editor:historyState', (state) => {
     applyHistoryState(state);
   });
+  const unsubscribeGameplayLevelState = eventBus.on('gameplay:levelState', (state) => {
+    applyGameplayLevelState(state ?? {});
+    syncViewingInputs();
+  });
   disposers.push(unsubscribeProxyKind);
   disposers.push(unsubscribeSplatLoaded);
   disposers.push(unsubscribeSheepAlignState);
   disposers.push(unsubscribeSheepCropState);
   disposers.push(unsubscribeHistoryState);
+  disposers.push(unsubscribeGameplayLevelState);
   eventBus.emit('environment:requestProxyKind');
   eventBus.emit('environment:requestSheepAlignState');
   eventBus.emit('environment:requestSheepCropState');
+  eventBus.emit('gameplay:requestLevelState');
 
   on(loadButton, 'click', () => {
     const file = splatInput?.files?.[0] ?? null;
@@ -386,6 +420,18 @@ export function bindUi(eventBus, root = document) {
     eventBus.emit('environment:proxyFile', file);
   }, disposers);
   on(runVoxelWorkflow, 'click', () => eventBus.emit('environment:runVoxelWorkflow', { file: splatInput?.files?.[0] ?? null }), disposers);
+  on(gameplayStartLevel, 'click', () => {
+    if (gameplayLevelEnabled) gameplayLevelEnabled.checked = true;
+    eventBus.emit('gameplay:startSplatLevel');
+  }, disposers);
+  on(gameplayStopLevel, 'click', () => {
+    if (gameplayLevelEnabled) gameplayLevelEnabled.checked = false;
+    eventBus.emit('gameplay:stopSplatLevel');
+  }, disposers);
+  on(gameplayResetProgress, 'click', () => {
+    eventBus.emit('game:resetRequested');
+    eventBus.emit('gameplay:requestLevelState');
+  }, disposers);
   on(minimalUiMode, 'change', () => setMinimalUi(Boolean(minimalUiMode?.checked)), disposers);
   on(realignProxy, 'click', () => eventBus.emit('environment:realignProxy'), disposers);
   on(proxyFlipUpDown, 'change', () => eventBus.emit('environment:proxyFlipUpDown', Boolean(proxyFlipUpDown?.checked)), disposers);
