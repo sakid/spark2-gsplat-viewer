@@ -46,6 +46,18 @@ function parseLoadedName(raw) {
   };
 }
 
+function readSceneBootstrapFlags() {
+  if (typeof window === 'undefined') {
+    return {
+      autoDefaultScene: true
+    };
+  }
+  const params = new URLSearchParams(window.location.search);
+  return {
+    autoDefaultScene: params.get('autoDefaultScene') !== '0'
+  };
+}
+
 function isEditableSelectionObject(object, scene, camera, sparkRenderer) {
   if (!object || object === scene || object === camera || object === sparkRenderer) return false;
   if (!object.parent) return false;
@@ -133,6 +145,8 @@ export class SceneManager {
     this.worldMaskByMesh = new Map();
     this.voxelEditState = new VoxelEditState();
     this.voxelEditStateDispose = this.voxelEditState.onChange(() => this.handleVoxelEditStateChanged());
+    this.sceneBootstrapFlags = readSceneBootstrapFlags();
+    this.defaultSceneBootstrapPromise = null;
     this.snapSettings = {
       enabled: true,
       space: 'world',
@@ -256,6 +270,7 @@ export class SceneManager {
 
     this.bindEditorControls();
     this.syncVoxelEditData();
+    void this.bootstrapDefaultWalkingSceneIfNeeded();
     this.applySnapSettings(this.snapSettings);
     this.commandHistory.emitChange?.();
 
@@ -417,6 +432,102 @@ export class SceneManager {
       this.voxelEditState.setVoxelData(voxelData);
     }
     this.emitVoxelSelectionState();
+  }
+
+  async bootstrapDefaultWalkingSceneIfNeeded() {
+    if (!this.sceneBootstrapFlags.autoDefaultScene) return;
+    if (this.defaultSceneBootstrapPromise) return;
+
+    this.defaultSceneBootstrapPromise = (async () => {
+      const environment = this.findEnvironmentEntity();
+      if (!environment?.splatMesh) return;
+
+      this.setStatus('Default scene: generating voxel proxy for primary actor...', 'info');
+      await environment.generateVoxel({ workflow: true });
+
+      this.syncVoxelEditData();
+      const voxelData = this.voxelEditState.getVoxelData();
+      if (!voxelData?.occupiedKeys?.size) {
+        this.setStatus('Default scene setup skipped: voxel data unavailable.', 'warning');
+        return;
+      }
+
+      const seedIndex = this.findLargestConnectedVoxelSeedIndex(voxelData);
+      if (!Number.isInteger(seedIndex)) {
+        this.setStatus('Default scene setup skipped: unable to isolate primary voxel component.', 'warning');
+        return;
+      }
+
+      this.voxelEditState.selectOnly(seedIndex);
+      this.selectConnectedVoxels();
+      await this.extractSelectedVoxelActor();
+
+      const refreshedEnvironment = this.findEnvironmentEntity();
+      if (refreshedEnvironment?.splatMesh) {
+        refreshedEnvironment.splatMesh.visible = false;
+      }
+      this.eventBus.emit('hierarchyChanged');
+      this.setStatus('Default scene ready: isolated actor extracted and walk cycle is playing.', 'success');
+    })().catch((error) => {
+      this.setStatus(
+        `Default scene setup failed: ${error instanceof Error ? error.message : String(error)}`,
+        'warning'
+      );
+    });
+  }
+
+  findLargestConnectedVoxelSeedIndex(voxelData) {
+    const occupied = voxelData?.occupiedKeys;
+    if (!occupied || occupied.size < 1) return null;
+
+    const parseKey = (key) => {
+      const [x, y, z] = String(key).split(',');
+      return [Number(x) || 0, Number(y) || 0, Number(z) || 0];
+    };
+    const hashKey = (x, y, z) => `${x},${y},${z}`;
+
+    const visited = new Set();
+    let bestKey = null;
+    let bestCount = 0;
+
+    for (const startKey of occupied) {
+      if (visited.has(startKey)) continue;
+      visited.add(startKey);
+      const queue = [startKey];
+      let cursor = 0;
+      let count = 0;
+
+      while (cursor < queue.length) {
+        const key = queue[cursor];
+        cursor += 1;
+        count += 1;
+
+        const [x, y, z] = parseKey(key);
+        const neighbors = [
+          hashKey(x + 1, y, z),
+          hashKey(x - 1, y, z),
+          hashKey(x, y + 1, z),
+          hashKey(x, y - 1, z),
+          hashKey(x, y, z + 1),
+          hashKey(x, y, z - 1)
+        ];
+
+        for (const neighbor of neighbors) {
+          if (!occupied.has(neighbor) || visited.has(neighbor)) continue;
+          visited.add(neighbor);
+          queue.push(neighbor);
+        }
+      }
+
+      if (count > bestCount) {
+        bestCount = count;
+        bestKey = startKey;
+      }
+    }
+
+    if (!bestKey) return null;
+    const seedIndex = voxelData.keyToIndex.get(bestKey);
+    return Number.isInteger(seedIndex) ? seedIndex : null;
   }
 
   clearManagedWorldMask(mesh) {

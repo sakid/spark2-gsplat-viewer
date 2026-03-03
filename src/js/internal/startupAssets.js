@@ -1,6 +1,6 @@
 // NEW PROXY ANIMATION
-export const DEFAULT_BOOT_SPLAT_URL = '/assets/splats/Sean_Sheep.spz';
-export const FALLBACK_SPLAT_URL = '/assets/splats/environment-lod.spz';
+export const DEFAULT_BOOT_SPLAT_URL = '/@fs/Users/alyoshakidoguchi/Downloads/Model.spz';
+export const FALLBACK_SPLAT_URL = '/assets/splats/Sean_Sheep.spz';
 export const DEFAULT_BOOT_PROXY_URL = '/assets/proxies/sean_proxy_animated.glb';
 
 export async function fetchAssetAsFile(url, fallbackName) {

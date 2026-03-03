@@ -44,9 +44,17 @@ const readStartupFlags = () => {
     };
   }
   const params = new URLSearchParams(window.location.search);
+  const skipBootProxyParam = params.get('skipBootProxy');
   return {
-    skipBootProxy: params.get('skipBootProxy') === '1' || params.get('smoke') === '1'
+    skipBootProxy: skipBootProxyParam == null ? true : skipBootProxyParam !== '0'
   };
+};
+
+const assetLabelFromUrl = (url, fallback) => {
+  const raw = String(url ?? '').split('?')[0];
+  const chunk = raw.split('/').pop();
+  const decoded = chunk ? decodeURIComponent(chunk) : '';
+  return decoded || fallback;
 };
 
 const removeObject = (scene, object) => {
@@ -1019,7 +1027,7 @@ export class EnvironmentSplat {
       'Environment splat loaded.'
     );
     if (loadedCanonical) {
-      setLoadedName('splat-loaded-name', 'Loaded: Sean_Sheep.spz');
+      setLoadedName('splat-loaded-name', `Loaded: ${assetLabelFromUrl(DEFAULT_ENVIRONMENT_SPLAT, 'default.spz')}`);
       return true;
     }
 
@@ -1034,7 +1042,7 @@ export class EnvironmentSplat {
       'Environment splat loaded.'
     );
     if (loadedFallback) {
-      setLoadedName('splat-loaded-name', 'Loaded: environment-lod.spz');
+      setLoadedName('splat-loaded-name', `Loaded: ${assetLabelFromUrl(FALLBACK_SPLAT_URL, 'fallback.spz')}`);
     }
     return loadedFallback;
   }

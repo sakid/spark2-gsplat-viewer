@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import puppeteer from 'puppeteer-core';
 
 const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const URL = process.env.SPARK2_URL ?? 'http://127.0.0.1:5173/?skipBootProxy=1';
+const URL = process.env.SPARK2_URL ?? 'http://127.0.0.1:5173/?skipBootProxy=1&autoDefaultScene=0';
 const MODEL_PATH = process.env.SPARK2_MODEL_PATH ?? '/Users/alyoshakidoguchi/Downloads/Model.spz';
 const TIMEOUT_MS = 420_000;
 
