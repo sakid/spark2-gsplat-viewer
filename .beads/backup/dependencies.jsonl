@@ -1,3 +1,4 @@
 {"created_at":"2026-03-02T01:19:04Z","created_by":"alyoshakidoguchi","depends_on_id":"SPARK2-12l","issue_id":"SPARK2-1p3","type":"discovered-from"}
 {"created_at":"2026-03-02T01:19:03Z","created_by":"alyoshakidoguchi","depends_on_id":"SPARK2-9gm","issue_id":"SPARK2-1p3","type":"discovered-from"}
 {"created_at":"2026-03-02T16:18:47Z","created_by":"alyoshakidoguchi","depends_on_id":"SPARK2-e3e","issue_id":"SPARK2-684","type":"discovered-from"}
+{"created_at":"2026-03-02T16:31:05Z","created_by":"alyoshakidoguchi","depends_on_id":"SPARK2-684","issue_id":"SPARK2-cwn","type":"discovered-from"}
