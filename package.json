@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "localtest": "bash scripts/localtest.sh dev",
+    "localtest:preview": "bash scripts/localtest.sh preview",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",

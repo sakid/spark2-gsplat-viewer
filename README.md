@@ -23,15 +23,32 @@ If missing, the engine reports clear runtime warnings and continues running.
 ## Scripts
 ```bash
 npm run dev
+npm run localtest
+npm run localtest:preview
 npm run build
 npm test
 npm run check:lines
+```
+
+For custom host/port:
+```bash
+./scripts/localtest.sh dev --host 127.0.0.1 --port 5173
+./scripts/localtest.sh preview --host 127.0.0.1 --port 4173
 ```
 
 ## Proxy animation entities
 - `ButterflySplat`: proxy `SkinnedMesh` + Spark `SplatSkinning`
 - `EnvironmentSplat`: environment splat + proxy collision + voxel proxy generation
 - `DynoEffectSplat`: proxy-driven dyno modifier graph with runtime fallback
+
+## Voxel Auto-Rig Workflow
+- Load a splat (default boot asset is `public/assets/splats/Sean_Sheep.spz`)
+- Click `Auto-Generate + Auto-Rig Proxy`
+- The app will:
+  - generate a voxel proxy from the splat
+  - build a procedural bone rig automatically
+  - start procedural animation playback immediately
+- Use existing proxy animation controls (`Play`, `Speed`, `Restart`, collision mode, deform toggle) to drive the auto-rigged voxel proxy
 
 ## Notes
 - Spark renderer is initialized with:

@@ -99,7 +99,7 @@ export const LEGACY_CONTROLS_HTML = `
     </label>
 
     <div class="row">
-      <button id="generate-voxel-btn" type="button">Auto-Generate Proxy Mesh</button>
+      <button id="generate-voxel-btn" type="button">Auto-Generate + Auto-Rig Proxy</button>
       <button id="export-voxel-glb-btn" type="button">Export Voxel Proxy (.glb)</button>
     </div>
     <div class="light-row-advanced" aria-label="Voxel config">
