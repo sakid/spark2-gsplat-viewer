@@ -15,6 +15,7 @@ export class CameraControls {
     this.verticalVelocity = 0;
     this.isGrounded = false;
     this.mode = 'view';
+    this.orbitSuppressed = false;
     this.collisionEnabled = false;
     this.tempFront = new THREE.Vector3();
     this.tempRight = new THREE.Vector3();
@@ -45,11 +46,16 @@ export class CameraControls {
     this.unsubscribers.push(context.eventBus.on('controls:mode', (mode) => {
       this.mode = mode;
       this.keys.clear();
-      this.orbit.enabled = mode !== 'view';
+      this.updateOrbitEnabled();
       if (mode !== 'view' && document.pointerLockElement === this.dom) {
         document.exitPointerLock();
       }
       this.emitPlayerState();
+    }));
+
+    this.unsubscribers.push(context.eventBus.on('controls:orbitSuppress', (suppressed) => {
+      this.orbitSuppressed = Boolean(suppressed);
+      this.updateOrbitEnabled();
     }));
 
     this.unsubscribers.push(context.eventBus.on('dom:keydown', (event) => {
@@ -99,6 +105,11 @@ export class CameraControls {
         z: this.camera.position.z
       }
     });
+  }
+
+  updateOrbitEnabled() {
+    if (!this.orbit) return;
+    this.orbit.enabled = this.mode !== 'view' && !this.orbitSuppressed;
   }
 
   focusSelectedObject() {

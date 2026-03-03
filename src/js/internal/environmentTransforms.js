@@ -49,6 +49,9 @@ export class EnvironmentTransforms {
     this.proxyMirrorZ = false;
     this.splatBase = null;
     this.proxyBase = null;
+    this.splatManualOffset = new THREE.Vector3();
+    this.splatManualQuaternion = new THREE.Quaternion();
+    this.splatManualScale = 1;
     this.proxyAlignOffset = new THREE.Vector3();
     this.proxyAlignScale = 1;
     this.proxyAlignQuaternion = new THREE.Quaternion();
@@ -69,6 +72,9 @@ export class EnvironmentTransforms {
 
   clearSplat() {
     this.splatBase = null;
+    this.splatManualOffset.set(0, 0, 0);
+    this.splatManualQuaternion.identity();
+    this.splatManualScale = 1;
   }
 
   clearProxy() {
@@ -85,21 +91,30 @@ export class EnvironmentTransforms {
     else this.proxyAlignQuaternion.identity();
   }
 
+  setSplatManualAlignment({ offset, scale, quaternion } = {}) {
+    this.splatManualOffset.copy(offset ?? new THREE.Vector3());
+    this.splatManualScale = Number.isFinite(scale) ? Math.max(scale, 1e-4) : 1;
+    if (quaternion instanceof THREE.Quaternion) this.splatManualQuaternion.copy(quaternion);
+    else this.splatManualQuaternion.identity();
+  }
+
   applySplat(mesh, parent = null) {
     if (!mesh || !this.splatBase) return;
     tempQuat.copy(this.splatBase.quaternion);
+    tempQuat.multiply(this.splatManualQuaternion);
     if (this.flipUpDown) applyFlipQuaternion(tempQuat);
-    tempScale.copy(this.splatBase.scale);
+    tempScale.copy(this.splatBase.scale).multiplyScalar(this.splatManualScale);
     if (this.flipLeftRight) tempScale.x = -tempScale.x;
+    tempPos.copy(this.splatBase.position).add(this.splatManualOffset);
     if (!parent) {
-      mesh.position.copy(this.splatBase.position);
+      mesh.position.copy(tempPos);
       mesh.quaternion.copy(tempQuat);
       mesh.scale.copy(tempScale);
       mesh.updateMatrixWorld(true);
       return;
     }
     parent.updateMatrixWorld(true);
-    tempParentToMesh.compose(this.splatBase.position, tempQuat, tempScale);
+    tempParentToMesh.compose(tempPos, tempQuat, tempScale);
     tempWorld.multiplyMatrices(parent.matrixWorld, tempParentToMesh);
     if (mesh.parent) {
       mesh.parent.updateMatrixWorld(true);

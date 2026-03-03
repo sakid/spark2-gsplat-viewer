@@ -8,6 +8,12 @@ export function createConsolePanel(element, eventBus) {
   root.append(list);
   element.append(root);
 
+  const selectionLabel = (payload) => {
+    if (payload?.target === 'world') return payload?.label || 'World / Level Settings';
+    if (payload?.target === 'player') return payload?.object?.name || 'Player';
+    return payload?.object?.name || payload?.object?.uuid || 'none';
+  };
+
   const push = (message) => {
     const row = document.createElement('li');
     row.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
@@ -21,7 +27,7 @@ export function createConsolePanel(element, eventBus) {
     eventUnsub(eventBus, 'sceneLoaded', () => push('Scene loaded')),
     eventUnsub(eventBus, 'objectAdded', (payload) => push(`Object added: ${payload?.object?.name || payload?.object?.uuid || 'unknown'}`)),
     eventUnsub(eventBus, 'objectRemoved', (payload) => push(`Object removed: ${payload?.object?.name || payload?.object?.uuid || 'unknown'}`)),
-    eventUnsub(eventBus, 'selectionChanged', (payload) => push(`Selection changed: ${payload?.object?.name || payload?.object?.uuid || 'none'}`))
+    eventUnsub(eventBus, 'selectionChanged', (payload) => push(`Selection changed: ${selectionLabel(payload)}`))
   ];
 
   return () => {
@@ -29,4 +35,3 @@ export function createConsolePanel(element, eventBus) {
     element.replaceChildren();
   };
 }
-

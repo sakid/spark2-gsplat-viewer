@@ -68,9 +68,33 @@ describe('voxel auto rig runtime', () => {
       collisionMode: 'static'
     });
 
-    expect(runtime.clipNames).toEqual(['AutoRig Procedural']);
+    expect(runtime.clipNames.length).toBeGreaterThanOrEqual(3);
+    expect(runtime.playClip(1)).toBe(true);
+    expect(runtime.playClip(99)).toBe(false);
     expect(runtime.boneCount).toBeGreaterThanOrEqual(4);
     expect(setVoxelCollisionData).toHaveBeenCalledWith(voxelData);
+
+    runtime.setWalkSettings({
+      cycleDuration: 1.4,
+      strideDegrees: 30,
+      swayDegrees: 12,
+      yawDegrees: 8,
+      torsoTwistDegrees: 10,
+      headNodDegrees: 6,
+      bounceAmount: 0.2,
+      gaitSharpness: 0.65,
+      phaseOffset: 0.1,
+      mirror: true
+    });
+    const stateWithCustomWalk = runtime.getAnimationState();
+    expect(stateWithCustomWalk.walkSettings.cycleDuration).toBeCloseTo(1.4, 4);
+    expect(stateWithCustomWalk.walkSettings.strideDegrees).toBeCloseTo(30, 4);
+    expect(stateWithCustomWalk.walkSettings.mirror).toBe(true);
+
+    runtime.setPlaybackPhase(0.25);
+    runtime.setPlaying(false);
+    runtime.update(0);
+    expect(runtime.getPlaybackPhase()).toBeGreaterThan(0);
 
     const beforeMatrix = new THREE.Matrix4();
     voxelData.mesh.getMatrixAt(6, beforeMatrix);
@@ -92,6 +116,15 @@ describe('voxel auto rig runtime', () => {
 
     runtime.setCollisionMode('off');
     expect(clearDynamicColliders).toHaveBeenCalledWith('test-owner');
+
+    runtime.setVisible(false);
+    runtime.setBonesVisible(true);
+    expect(runtime.mesh?.visible).toBe(false);
+    expect(runtime.root?.visible).toBe(true);
+
+    expect(runtime.regenerateRig(null)).toBe(true);
+    expect(runtime.boneCount).toBeGreaterThanOrEqual(4);
+    expect(runtime.resetWalkSettings().cycleDuration).toBeGreaterThan(0.2);
 
     runtime.dispose();
     expect(clearDynamicColliders).toHaveBeenCalledWith('test-owner');

@@ -1,0 +1,14 @@
+{
+  "assets": [
+    {
+      "name": "Sean_Sheep.spz",
+      "url": "/assets/splats/Sean_Sheep.spz",
+      "kind": "splat"
+    },
+    {
+      "name": "sean_proxy_animated.glb",
+      "url": "/assets/proxies/sean_proxy_animated.glb",
+      "kind": "proxy"
+    }
+  ]
+}

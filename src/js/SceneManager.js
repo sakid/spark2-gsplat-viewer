@@ -1,8 +1,10 @@
 import * as THREE from 'three';
+import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { loadSparkModule } from '../spark/previewAdapter';
 import { resolveCameraMovement as resolveMovement } from './internal/collisionResolver';
 import { selectLodSplatCount } from './internal/lodPolicy';
 import { bindUi } from './internal/uiBindings';
+import { EditorCommandHistory } from './internal/editorCommandHistory';
 import { applySparkCovOnlyPatch } from './internal/patchSparkCovOnly';
 import { GeneralLights } from './sceneSubjects/GeneralLights';
 import { CameraControls } from './sceneSubjects/CameraControls';
@@ -38,6 +40,58 @@ function parseLoadedName(raw) {
   };
 }
 
+function isEditableSelectionObject(object, scene, camera, sparkRenderer) {
+  if (!object || object === scene || object === camera || object === sparkRenderer) return false;
+  if (!object.parent) return false;
+  if (object.isCamera) return false;
+  if (object.userData?.editorLocked) return false;
+  return true;
+}
+
+function toTransformSnapshot(object) {
+  return {
+    position: toTuple3(object.position),
+    quaternion: toTuple4(object.quaternion),
+    scale: toTuple3(object.scale)
+  };
+}
+
+function applyTransformSnapshot(object, snapshot) {
+  if (!object || !snapshot) return;
+  object.position.set(snapshot.position[0], snapshot.position[1], snapshot.position[2]);
+  object.quaternion.set(snapshot.quaternion[0], snapshot.quaternion[1], snapshot.quaternion[2], snapshot.quaternion[3]);
+  object.scale.set(snapshot.scale[0], snapshot.scale[1], snapshot.scale[2]);
+  object.updateMatrixWorld(true);
+}
+
+function snapshotsEqual(a, b) {
+  if (!a || !b) return false;
+  const eps = 1e-6;
+  const valuesA = [...a.position, ...a.quaternion, ...a.scale];
+  const valuesB = [...b.position, ...b.quaternion, ...b.scale];
+  if (valuesA.length !== valuesB.length) return false;
+  for (let i = 0; i < valuesA.length; i += 1) {
+    if (Math.abs(valuesA[i] - valuesB[i]) > eps) return false;
+  }
+  return true;
+}
+
+function isTextEntryTarget(target) {
+  const hasDomTypes =
+    typeof HTMLInputElement !== 'undefined'
+    && typeof HTMLTextAreaElement !== 'undefined'
+    && typeof HTMLSelectElement !== 'undefined';
+  if (!hasDomTypes) return false;
+  if (
+    target instanceof HTMLInputElement
+    || target instanceof HTMLTextAreaElement
+    || target instanceof HTMLSelectElement
+  ) {
+    return true;
+  }
+  return Boolean(target?.isContentEditable);
+}
+
 // NEW PROXY ANIMATION
 export class SceneManager {
   constructor({ container, eventBus, statusReporter }) {
@@ -57,7 +111,23 @@ export class SceneManager {
     this.sceneEventsPatched = false;
     this.uiRoot = null;
     this.selectedObjectUuid = null;
+    this.selectedObjectUuids = [];
+    this.interactionMode = 'view';
     this.selectionDispose = () => {};
+    this.editorDisposers = [];
+    this.transformDragStart = null;
+    this.snapSettings = {
+      enabled: true,
+      space: 'world',
+      translate: 0.25,
+      rotate: 15,
+      scale: 0.1
+    };
+    this.commandHistory = new EditorCommandHistory({
+      onChange: (state) => {
+        this.eventBus.emit('editor:historyState', state);
+      }
+    });
   }
 
   async init() {
@@ -97,6 +167,14 @@ export class SceneManager {
 
     this.scene.add(this.sparkRenderer);
 
+    this.editorTransformControls = new TransformControls(this.camera, this.renderer.domElement);
+    this.editorTransformControls.name = 'EditorTransformControls';
+    this.editorTransformControls.enabled = false;
+    this.editorTransformControls.visible = false;
+    this.editorTransformControls.setMode('translate');
+    this.editorTransformControls.setSpace('world');
+    this.scene.add(this.editorTransformControls);
+
     this.entities = [
       new GeneralLights(),
       new CameraControls(),
@@ -114,6 +192,7 @@ export class SceneManager {
       sparkModule: this.sparkModule,
       eventBus: this.eventBus,
       setStatus: this.setStatus,
+      commandHistory: this.commandHistory,
       replaceColliders: (owner, colliders) => this.replaceColliders(owner, colliders),
       setDynamicColliders: (owner, colliders) => this.setDynamicColliders(owner, colliders),
       clearDynamicColliders: (owner) => this.clearDynamicColliders(owner),
@@ -128,10 +207,23 @@ export class SceneManager {
     }
 
     const onSelectionChanged = (payload) => {
-      this.selectedObjectUuid = payload?.object?.uuid ?? payload?.uuids?.[0] ?? null;
+      const uuids = Array.isArray(payload?.uuids)
+        ? payload.uuids.filter((value) => typeof value === 'string')
+        : [];
+      const objectUuid = payload?.object?.uuid;
+      if (typeof objectUuid === 'string' && !uuids.includes(objectUuid)) {
+        uuids.unshift(objectUuid);
+      }
+      this.selectedObjectUuids = uuids;
+      this.selectedObjectUuid = uuids[0] ?? null;
+      this.updateEditorTransformBinding();
     };
     this.selectionDispose = this.eventBus.on?.('selectionChanged', onSelectionChanged)
       ?? (() => this.eventBus.off?.('selectionChanged', onSelectionChanged));
+
+    this.bindEditorControls();
+    this.applySnapSettings(this.snapSettings);
+    this.commandHistory.emitChange?.();
 
     this.bindUiWhenReady();
     this.resize();
@@ -182,6 +274,392 @@ export class SceneManager {
     if (document.getElementById('panel')) {
       bind();
     }
+  }
+
+  bindEditorControls() {
+    const controls = this.editorTransformControls;
+    if (!controls) return;
+
+    const onDragStateChanged = (event) => {
+      const dragging = Boolean(event?.value);
+      this.eventBus.emit('controls:orbitSuppress', dragging);
+      if (dragging) {
+        this.transformDragStart = controls.object ? toTransformSnapshot(controls.object) : null;
+        return;
+      }
+      const object = controls.object;
+      const before = this.transformDragStart;
+      const after = object ? toTransformSnapshot(object) : null;
+      this.transformDragStart = null;
+      if (!object || !before || !after || snapshotsEqual(before, after)) {
+        return;
+      }
+      this.commandHistory.execute({
+        label: `Transform ${object.name || object.type || object.uuid}`,
+        do: () => {
+          applyTransformSnapshot(object, after);
+          this.eventBus.emit('hierarchyChanged');
+        },
+        undo: () => {
+          applyTransformSnapshot(object, before);
+          this.eventBus.emit('hierarchyChanged');
+        }
+      });
+    };
+
+    const onObjectChange = () => {
+      this.eventBus.emit('hierarchyChanged');
+    };
+
+    controls.addEventListener('dragging-changed', onDragStateChanged);
+    controls.addEventListener('objectChange', onObjectChange);
+    this.editorDisposers.push(() => controls.removeEventListener('dragging-changed', onDragStateChanged));
+    this.editorDisposers.push(() => controls.removeEventListener('objectChange', onObjectChange));
+
+    const busOn = (event, handler) => {
+      const dispose = this.eventBus.on?.(event, handler) ?? (() => this.eventBus.off?.(event, handler));
+      this.editorDisposers.push(dispose);
+    };
+
+    busOn('controls:mode', (mode) => {
+      this.interactionMode = mode || 'view';
+      this.updateEditorTransformBinding();
+    });
+    busOn('editor:snapSettingsChanged', (settings) => this.applySnapSettings(settings));
+    busOn('editor:undoRequested', () => this.undoEditorCommand());
+    busOn('editor:redoRequested', () => this.redoEditorCommand());
+    busOn('dom:keydown', (event) => this.handleEditorShortcuts(event));
+    busOn('hierarchy:visibilityRequested', (payload) => this.handleVisibilityToggle(payload));
+    busOn('hierarchy:lockRequested', (payload) => this.handleLockToggle(payload));
+    busOn('hierarchy:reparentRequested', (payload) => this.handleReparentRequest(payload));
+    busOn('hierarchy:createFolderRequested', (payload) => this.handleCreateFolder(payload));
+    busOn('hierarchy:focusRequested', () => {
+      this.eventBus.emit('selection:focusRequested');
+    });
+  }
+
+  applySnapSettings(settings) {
+    if (settings && typeof settings === 'object') {
+      this.snapSettings = {
+        enabled: settings.enabled !== false,
+        space: settings.space === 'local' ? 'local' : 'world',
+        translate: Math.max(0.01, Number(settings.translate) || this.snapSettings.translate),
+        rotate: Math.max(0.1, Number(settings.rotate) || this.snapSettings.rotate),
+        scale: Math.max(0.01, Number(settings.scale) || this.snapSettings.scale)
+      };
+    }
+
+    const controls = this.editorTransformControls;
+    if (!controls) return;
+    controls.setSpace(this.snapSettings.space);
+    if (!this.snapSettings.enabled) {
+      controls.setTranslationSnap(null);
+      controls.setRotationSnap(null);
+      controls.setScaleSnap(null);
+      return;
+    }
+    controls.setTranslationSnap(this.snapSettings.translate);
+    controls.setRotationSnap(THREE.MathUtils.degToRad(this.snapSettings.rotate));
+    controls.setScaleSnap(this.snapSettings.scale);
+  }
+
+  getPrimarySelectedObject() {
+    if (!this.selectedObjectUuid) return null;
+    return this.scene?.getObjectByProperty?.('uuid', this.selectedObjectUuid) ?? null;
+  }
+
+  updateEditorTransformBinding() {
+    const controls = this.editorTransformControls;
+    if (!controls) return;
+
+    const selected = this.getPrimarySelectedObject();
+    const canAttach = this.interactionMode === 'object-edit'
+      && isEditableSelectionObject(selected, this.scene, this.camera, this.sparkRenderer);
+    if (!canAttach) {
+      controls.detach();
+      controls.enabled = false;
+      controls.visible = false;
+      this.eventBus.emit('controls:orbitSuppress', false);
+      return;
+    }
+
+    controls.enabled = true;
+    controls.visible = true;
+    if (controls.object !== selected) {
+      controls.attach(selected);
+    }
+  }
+
+  setEditorTransformMode(mode) {
+    const controls = this.editorTransformControls;
+    if (!controls) return;
+    const normalized = mode === 'rotate' || mode === 'scale' ? mode : 'translate';
+    if (normalized === 'translate' || normalized === 'rotate' || normalized === 'scale') {
+      if (!controls.object) {
+        this.updateEditorTransformBinding();
+      }
+      controls.setMode(normalized);
+      controls.visible = true;
+      this.setStatus(`Transform mode: ${normalized}.`, 'info');
+    }
+  }
+
+  undoEditorCommand() {
+    if (!this.commandHistory.undo()) {
+      this.setStatus('Nothing to undo.', 'warning');
+      return;
+    }
+    this.eventBus.emit('hierarchyChanged');
+    this.updateEditorTransformBinding();
+    this.setStatus('Undo applied.', 'info');
+  }
+
+  redoEditorCommand() {
+    if (!this.commandHistory.redo()) {
+      this.setStatus('Nothing to redo.', 'warning');
+      return;
+    }
+    this.eventBus.emit('hierarchyChanged');
+    this.updateEditorTransformBinding();
+    this.setStatus('Redo applied.', 'info');
+  }
+
+  handleEditorShortcuts(event) {
+    if (!event) return;
+    if (isTextEntryTarget(event.target)) return;
+
+    const key = String(event.key || '').toLowerCase();
+    const ctrlOrMeta = Boolean(event.ctrlKey || event.metaKey);
+
+    if (ctrlOrMeta && key === 'z') {
+      event.preventDefault?.();
+      if (event.shiftKey) this.redoEditorCommand();
+      else this.undoEditorCommand();
+      return;
+    }
+    if (ctrlOrMeta && key === 'y') {
+      event.preventDefault?.();
+      this.redoEditorCommand();
+      return;
+    }
+    if (ctrlOrMeta && key === 'd') {
+      event.preventDefault?.();
+      this.duplicateSelectedObject();
+      return;
+    }
+
+    if (key === 'f') {
+      event.preventDefault?.();
+      this.eventBus.emit('selection:focusRequested');
+      return;
+    }
+
+    if (this.interactionMode === 'object-edit') {
+      if (key === 'q') {
+        event.preventDefault?.();
+        this.editorTransformControls?.detach?.();
+        this.editorTransformControls && (this.editorTransformControls.visible = false);
+        this.setStatus('Transform gizmo hidden (Q).', 'info');
+        return;
+      }
+      if (key === 'w') {
+        event.preventDefault?.();
+        this.setEditorTransformMode('translate');
+        return;
+      }
+      if (key === 'e') {
+        event.preventDefault?.();
+        this.setEditorTransformMode('rotate');
+        return;
+      }
+      if (key === 'r') {
+        event.preventDefault?.();
+        this.setEditorTransformMode('scale');
+        return;
+      }
+    }
+
+    if ((key === 'delete' || key === 'backspace') && this.interactionMode === 'object-edit') {
+      event.preventDefault?.();
+      this.deleteSelectedObject();
+    }
+  }
+
+  handleVisibilityToggle(payload = {}) {
+    const uuid = typeof payload.uuid === 'string' ? payload.uuid : null;
+    const nextVisible = payload.visible !== false;
+    if (!uuid) return;
+    const object = this.scene?.getObjectByProperty?.('uuid', uuid) ?? null;
+    if (!object) return;
+    const prevVisible = object.visible !== false;
+    if (prevVisible === nextVisible) return;
+    this.commandHistory.execute({
+      label: `${nextVisible ? 'Show' : 'Hide'} ${object.name || object.type || object.uuid}`,
+      do: () => {
+        object.visible = nextVisible;
+        this.eventBus.emit('hierarchyChanged');
+      },
+      undo: () => {
+        object.visible = prevVisible;
+        this.eventBus.emit('hierarchyChanged');
+      }
+    });
+  }
+
+  handleLockToggle(payload = {}) {
+    const uuid = typeof payload.uuid === 'string' ? payload.uuid : null;
+    const nextLocked = Boolean(payload.locked);
+    if (!uuid) return;
+    const object = this.scene?.getObjectByProperty?.('uuid', uuid) ?? null;
+    if (!object) return;
+    const prevLocked = Boolean(object.userData?.editorLocked);
+    if (prevLocked === nextLocked) return;
+    this.commandHistory.execute({
+      label: `${nextLocked ? 'Lock' : 'Unlock'} ${object.name || object.type || object.uuid}`,
+      do: () => {
+        object.userData = object.userData ?? {};
+        object.userData.editorLocked = nextLocked;
+        this.updateEditorTransformBinding();
+        this.eventBus.emit('hierarchyChanged');
+      },
+      undo: () => {
+        object.userData = object.userData ?? {};
+        object.userData.editorLocked = prevLocked;
+        this.updateEditorTransformBinding();
+        this.eventBus.emit('hierarchyChanged');
+      }
+    });
+  }
+
+  handleReparentRequest(payload = {}) {
+    const childId = typeof payload.childId === 'string' ? payload.childId : null;
+    if (!childId) return;
+    const child = this.scene?.getObjectByProperty?.('uuid', childId) ?? null;
+    if (!child || child === this.scene || child === this.camera || child === this.sparkRenderer) return;
+
+    const requestedParentId = typeof payload.parentId === 'string' ? payload.parentId : null;
+    const nextParent = requestedParentId
+      ? this.scene?.getObjectByProperty?.('uuid', requestedParentId) ?? null
+      : this.scene;
+    if (!nextParent || nextParent === child || nextParent === this.sparkRenderer) return;
+
+    let cursor = nextParent;
+    while (cursor) {
+      if (cursor === child) return;
+      cursor = cursor.parent;
+    }
+
+    const prevParent = child.parent;
+    if (!prevParent || prevParent === nextParent) return;
+    const prevIndex = prevParent.children.indexOf(child);
+
+    this.commandHistory.execute({
+      label: `Reparent ${child.name || child.type || child.uuid}`,
+      do: () => {
+        nextParent.add(child);
+        this.eventBus.emit('hierarchyChanged');
+      },
+      undo: () => {
+        prevParent.add(child);
+        if (prevIndex >= 0) {
+          const current = prevParent.children.indexOf(child);
+          if (current >= 0) {
+            prevParent.children.splice(current, 1);
+            prevParent.children.splice(Math.min(prevIndex, prevParent.children.length), 0, child);
+          }
+        }
+        this.eventBus.emit('hierarchyChanged');
+      }
+    });
+  }
+
+  handleCreateFolder(payload = {}) {
+    const requestedParentId = typeof payload.parentId === 'string' ? payload.parentId : null;
+    const parent = requestedParentId
+      ? this.scene?.getObjectByProperty?.('uuid', requestedParentId) ?? null
+      : this.scene;
+    if (!parent) return;
+    const folder = new THREE.Group();
+    folder.name = payload.name ? String(payload.name) : 'Folder';
+    folder.userData = {
+      ...(folder.userData ?? {}),
+      editorFolder: true
+    };
+
+    this.commandHistory.execute({
+      label: `Create folder ${folder.name}`,
+      do: () => {
+        parent.add(folder);
+        this.eventBus.emit('hierarchyChanged');
+        this.eventBus.emit('selectionChanged', { uuids: [folder.uuid], object: folder });
+      },
+      undo: () => {
+        folder.removeFromParent();
+        this.eventBus.emit('hierarchyChanged');
+      }
+    });
+  }
+
+  duplicateSelectedObject() {
+    const source = this.getPrimarySelectedObject();
+    if (!isEditableSelectionObject(source, this.scene, this.camera, this.sparkRenderer)) {
+      this.setStatus('Select an editable object to duplicate.', 'warning');
+      return;
+    }
+    const parent = source.parent ?? this.scene;
+    if (!parent) return;
+    const clone = source.clone(true);
+    clone.name = source.name ? `${source.name} Copy` : `${source.type || 'Object'} Copy`;
+    clone.position.add(new THREE.Vector3(0.1, 0, 0.1));
+    clone.updateMatrixWorld(true);
+
+    this.commandHistory.execute({
+      label: `Duplicate ${source.name || source.type || source.uuid}`,
+      do: () => {
+        parent.add(clone);
+        this.eventBus.emit('hierarchyChanged');
+        this.eventBus.emit('selectionChanged', { uuids: [clone.uuid], object: clone });
+      },
+      undo: () => {
+        clone.removeFromParent();
+        this.eventBus.emit('hierarchyChanged');
+        this.eventBus.emit('selectionChanged', { uuids: [source.uuid], object: source });
+      }
+    });
+    this.setStatus(`Duplicated ${source.name || source.type || source.uuid}.`, 'success');
+  }
+
+  deleteSelectedObject() {
+    const source = this.getPrimarySelectedObject();
+    if (!isEditableSelectionObject(source, this.scene, this.camera, this.sparkRenderer)) {
+      this.setStatus('Select an editable object to delete.', 'warning');
+      return;
+    }
+    const parent = source.parent;
+    if (!parent) return;
+    const index = parent.children.indexOf(source);
+
+    this.commandHistory.execute({
+      label: `Delete ${source.name || source.type || source.uuid}`,
+      do: () => {
+        source.removeFromParent();
+        this.eventBus.emit('hierarchyChanged');
+        this.eventBus.emit('selectionChanged', { uuids: [], object: null });
+      },
+      undo: () => {
+        parent.add(source);
+        if (index >= 0) {
+          const current = parent.children.indexOf(source);
+          if (current >= 0) {
+            parent.children.splice(current, 1);
+            parent.children.splice(Math.min(index, parent.children.length), 0, source);
+          }
+        }
+        this.eventBus.emit('hierarchyChanged');
+        this.eventBus.emit('selectionChanged', { uuids: [source.uuid], object: source });
+      }
+    });
+    this.setStatus(`Deleted ${source.name || source.type || source.uuid}. Use Undo to restore.`, 'info');
   }
 
   installSceneEventHooks() {
@@ -464,7 +942,13 @@ export class SceneManager {
         showLightingProbes: this.readChecked('show-lighting-probes', true),
         collisionEnabled: this.readChecked('collision-enabled', false),
         showProxyMesh: this.readChecked('show-proxy-mesh', false),
-        voxelEditMode: this.readChecked('voxel-edit-mode', false)
+        voxelEditMode: this.readChecked('voxel-edit-mode', false),
+        objectEditMode: this.readChecked('object-edit-mode', false),
+        editorSnapEnabled: this.readChecked('editor-snap-enabled', true),
+        editorGizmoSpace: this.getControl('editor-gizmo-space')?.value === 'local' ? 'local' : 'world',
+        editorTranslateSnap: this.readNumber('editor-translate-snap', 0.25),
+        editorRotateSnap: this.readNumber('editor-rotate-snap', 15),
+        editorScaleSnap: this.readNumber('editor-scale-snap', 0.1)
       },
       lights: this.collectSceneLights()
     });
@@ -500,6 +984,7 @@ export class SceneManager {
       this.setChecked('show-proxy-mesh', settings.showProxyMesh);
       this.setChecked('collision-enabled', settings.collisionEnabled);
       this.setChecked('voxel-edit-mode', settings.voxelEditMode);
+      this.setChecked('object-edit-mode', settings.objectEditMode);
       this.setChecked('light-edit-mode', settings.lightEditMode);
       this.setChecked('show-light-helpers', settings.showLightHelpers);
       this.setChecked('show-light-gizmos', settings.showLightGizmos);
@@ -509,6 +994,11 @@ export class SceneManager {
       this.setChecked('shadows-enabled', settings.shadowsEnabled);
       this.setInputValue('tone-mapping', settings.toneMapping);
       this.setInputValue('tone-mapping-exposure', String(settings.toneMappingExposure));
+      this.setChecked('editor-snap-enabled', settings.editorSnapEnabled);
+      this.setInputValue('editor-gizmo-space', settings.editorGizmoSpace);
+      this.setInputValue('editor-translate-snap', String(settings.editorTranslateSnap));
+      this.setInputValue('editor-rotate-snap', String(settings.editorRotateSnap));
+      this.setInputValue('editor-scale-snap', String(settings.editorScaleSnap));
     }
 
     this.applySceneLights(lights);
@@ -535,6 +1025,20 @@ export class SceneManager {
       });
       this.eventBus.emit('lights:editMode', Boolean(settings.lightEditMode));
       this.eventBus.emit('environment:voxelEditMode', Boolean(settings.voxelEditMode));
+      this.eventBus.emit('editor:snapSettingsChanged', {
+        enabled: settings.editorSnapEnabled,
+        space: settings.editorGizmoSpace,
+        translate: settings.editorTranslateSnap,
+        rotate: settings.editorRotateSnap,
+        scale: settings.editorScaleSnap
+      });
+      if (settings.voxelEditMode) {
+        this.eventBus.emit('controls:mode', 'voxel-edit');
+      } else if (settings.objectEditMode) {
+        this.eventBus.emit('controls:mode', 'object-edit');
+      } else {
+        this.eventBus.emit('controls:mode', 'view');
+      }
     }
 
     if (settings?.selectedOutlinerId) {
@@ -601,6 +1105,10 @@ export class SceneManager {
   dispose() {
     for (const entity of [...this.entities].reverse()) entity.dispose();
     this.selectionDispose?.();
+    for (const dispose of this.editorDisposers.splice(0)) dispose();
+    this.editorTransformControls?.removeFromParent?.();
+    this.editorTransformControls?.dispose?.();
+    this.editorTransformControls = null;
     this.uiReadyDispose();
     this.uiDispose();
     this.renderer?.domElement?.removeEventListener?.('webglcontextlost', this.onContextLost);

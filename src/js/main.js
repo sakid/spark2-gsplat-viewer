@@ -154,6 +154,13 @@ async function bootstrap() {
     }
   });
 
+  onEvent('status:message', (payload) => {
+    const text = payload?.text;
+    if (!text) return;
+    const kind = payload?.kind === 'error' ? 'error' : payload?.kind === 'warning' ? 'warning' : 'info';
+    statusReporter.setStatus(String(text), kind);
+  });
+
   syncSlotOptions();
 
   if (import.meta.env.DEV) {

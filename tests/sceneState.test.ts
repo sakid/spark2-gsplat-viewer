@@ -82,7 +82,13 @@ function sampleScene(): SceneFileV2 {
       showLightingProbes: true,
       collisionEnabled: true,
       showProxyMesh: false,
-      voxelEditMode: false
+      voxelEditMode: false,
+      objectEditMode: false,
+      editorSnapEnabled: true,
+      editorGizmoSpace: 'world',
+      editorTranslateSnap: 0.25,
+      editorRotateSnap: 15,
+      editorScaleSnap: 0.1
     },
     lights: [
       {
