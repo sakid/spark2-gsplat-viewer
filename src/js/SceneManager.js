@@ -3,6 +3,7 @@ import { loadSparkModule } from '../spark/previewAdapter';
 import { resolveCameraMovement as resolveMovement } from './internal/collisionResolver';
 import { selectLodSplatCount } from './internal/lodPolicy';
 import { bindUi } from './internal/uiBindings';
+import { applySparkCovOnlyPatch } from './internal/patchSparkCovOnly';
 import { GeneralLights } from './sceneSubjects/GeneralLights';
 import { CameraControls } from './sceneSubjects/CameraControls';
 import { RenderQuality } from './sceneSubjects/RenderQuality';
@@ -61,6 +62,10 @@ export class SceneManager {
 
   async init() {
     this.sparkModule = await loadSparkModule();
+    const covPatch = applySparkCovOnlyPatch(this.sparkModule);
+    if (!covPatch.applied) {
+      this.setStatus(`Spark cov-only patch not applied: ${covPatch.reason || 'unknown reason'}`, 'warning');
+    }
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color('#030712');
     this.installSceneEventHooks();
@@ -86,7 +91,8 @@ export class SceneManager {
       enableLod: true,
       lodSplatCount: selectLodSplatCount(navigator.userAgent),
       maxStdDev: Math.sqrt(8),
-      autoUpdate: true
+      autoUpdate: true,
+      covSplats: true
     });
 
     this.scene.add(this.sparkRenderer);
