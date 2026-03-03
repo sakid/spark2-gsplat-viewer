@@ -26,6 +26,10 @@ function normalizeNavMode(mode) {
   return mode === 'orbit' ? 'orbit' : 'fly';
 }
 
+function normalizeWorkspacePreset(value) {
+  return value === 'advanced' ? 'advanced' : 'minimal';
+}
+
 function createSelectOption(select, value, label) {
   const option = document.createElement('option');
   option.value = value;
@@ -69,6 +73,18 @@ export function createEditorChrome(eventBus) {
   createSelectOption(navSelect, 'fly', 'Fly');
   createSelectOption(navSelect, 'orbit', 'Orbit');
   navWrap.append(navLabel, navSelect);
+
+  const workspaceWrap = document.createElement('div');
+  workspaceWrap.className = 'spark-topbar-group';
+  const workspaceLabel = document.createElement('label');
+  workspaceLabel.className = 'spark-topbar-label';
+  workspaceLabel.textContent = 'Workspace';
+  const workspaceSelect = document.createElement('select');
+  workspaceSelect.className = 'spark-topbar-select';
+  createSelectOption(workspaceSelect, 'minimal', 'Minimal');
+  createSelectOption(workspaceSelect, 'advanced', 'Advanced');
+  const resetLayoutBtn = createButton('Reset Layout');
+  workspaceWrap.append(workspaceLabel, workspaceSelect, resetLayoutBtn);
 
   const transformWrap = document.createElement('div');
   transformWrap.className = 'spark-topbar-group spark-topbar-tools';
@@ -129,13 +145,15 @@ export function createEditorChrome(eventBus) {
   status.className = 'info';
   status.textContent = 'Editor ready.';
 
-  root.append(modeWrap, navWrap, transformWrap, historyWrap, snapWrap, status);
+  root.append(modeWrap, navWrap, workspaceWrap, transformWrap, historyWrap, snapWrap, status);
 
   let mode = 'view';
   let transformMode = 'translate';
   let navMode = normalizeNavMode(localStorage.getItem(NAV_MODE_STORAGE_KEY));
+  let workspacePreset = 'minimal';
   modeSelect.value = mode;
   navSelect.value = navMode;
+  workspaceSelect.value = workspacePreset;
 
   const setActiveTransformButton = (nextMode) => {
     transformMode = nextMode;
@@ -199,6 +217,12 @@ export function createEditorChrome(eventBus) {
   navSelect.addEventListener('change', () => {
     emitNavMode(navSelect.value);
   });
+  workspaceSelect.addEventListener('change', () => {
+    eventBus.emit('workspace:layoutPresetRequested', { preset: normalizeWorkspacePreset(workspaceSelect.value) });
+  });
+  resetLayoutBtn.addEventListener('click', () => {
+    eventBus.emit('workspace:resetLayoutRequested');
+  });
 
   selectBtn.addEventListener('click', () => onTransformTool('select'));
   moveBtn.addEventListener('click', () => onTransformTool('translate'));
@@ -229,6 +253,10 @@ export function createEditorChrome(eventBus) {
         // Ignore storage write failures.
       }
     }),
+    eventUnsub(eventBus, 'workspace:layoutPresetChanged', (payload) => {
+      workspacePreset = normalizeWorkspacePreset(payload?.preset);
+      workspaceSelect.value = workspacePreset;
+    }),
     eventUnsub(eventBus, 'editor:transformModeChanged', (payload) => {
       const nextMode = payload?.mode;
       if (nextMode === 'select' || nextMode === 'translate' || nextMode === 'rotate' || nextMode === 'scale') {
@@ -247,6 +275,7 @@ export function createEditorChrome(eventBus) {
 
   emitNavMode(navMode);
   emitSnapSettings();
+  eventBus.emit('workspace:requestPreset');
 
   return {
     element: root,

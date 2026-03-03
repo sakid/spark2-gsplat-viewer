@@ -17,6 +17,7 @@ import { createEditorChrome } from './editorChrome.js';
 import { LEGACY_CONTROLS_HTML } from './templates/legacyControlsHtml.js';
 
 const LAYOUT_STORAGE_KEY = 'spark-editor-layout-v1';
+const WORKSPACE_STORAGE_KEY = 'spark-editor-workspace-v1';
 
 const eventUnsub = (eventBus, event, handler) => eventBus.on?.(event, handler) ?? (() => eventBus.off?.(event, handler));
 
@@ -56,7 +57,27 @@ const createConsolePanel = (element, eventBus) => {
   };
 };
 
-const createDefaultLayout = (dockviewApi) => {
+const normalizeWorkspacePreset = (value) => (value === 'advanced' ? 'advanced' : 'minimal');
+
+const readWorkspacePreset = () => {
+  try {
+    const value = localStorage.getItem(WORKSPACE_STORAGE_KEY);
+    if (value == null) return null;
+    return normalizeWorkspacePreset(value);
+  } catch {
+    return null;
+  }
+};
+
+const saveWorkspacePreset = (preset) => {
+  try {
+    localStorage.setItem(WORKSPACE_STORAGE_KEY, normalizeWorkspacePreset(preset));
+  } catch (error) {
+    console.warn('Failed to persist workspace preset.', error);
+  }
+};
+
+const createAdvancedLayout = (dockviewApi) => {
   dockviewApi.clear();
   const viewport = dockviewApi.addPanel({ id: 'viewport', component: 'viewport', title: 'Viewport' });
   const hierarchy = dockviewApi.addPanel({
@@ -95,6 +116,56 @@ const createDefaultLayout = (dockviewApi) => {
     title: 'Console',
     position: { direction: 'below', referencePanel: hierarchy }
   });
+};
+
+const createMinimalLayout = (dockviewApi) => {
+  dockviewApi.clear();
+  const viewport = dockviewApi.addPanel({ id: 'viewport', component: 'viewport', title: 'Viewport' });
+  const hierarchy = dockviewApi.addPanel({
+    id: 'hierarchy',
+    component: 'hierarchy',
+    title: 'Hierarchy',
+    position: { direction: 'left', referencePanel: viewport }
+  });
+  dockviewApi.addPanel({
+    id: 'content',
+    component: 'content',
+    title: 'Content Browser',
+    position: { direction: 'within', referencePanel: hierarchy }
+  });
+
+  const inspector = dockviewApi.addPanel({
+    id: 'inspector',
+    component: 'inspector',
+    title: 'Inspector',
+    position: { direction: 'right', referencePanel: viewport }
+  });
+  const controls = dockviewApi.addPanel({
+    id: 'controls',
+    component: 'controls',
+    title: 'Controls',
+    position: { direction: 'within', referencePanel: inspector }
+  });
+  const dialog = dockviewApi.addPanel({
+    id: 'dialog',
+    component: 'dialog',
+    title: 'Dialog',
+    position: { direction: 'within', referencePanel: controls }
+  });
+  dockviewApi.addPanel({
+    id: 'console',
+    component: 'console',
+    title: 'Console',
+    position: { direction: 'within', referencePanel: dialog }
+  });
+};
+
+const createWorkspaceLayout = (dockviewApi, preset) => {
+  if (normalizeWorkspacePreset(preset) === 'advanced') {
+    createAdvancedLayout(dockviewApi);
+    return;
+  }
+  createMinimalLayout(dockviewApi);
 };
 
 const tryRestoreLayout = (dockviewApi) => {
@@ -204,11 +275,6 @@ export function initDockviewEditor(sceneManager, eventBus) {
     }
   });
 
-  const restored = tryRestoreLayout(dockviewApi);
-  if (!restored) {
-    createDefaultLayout(dockviewApi);
-  }
-
   const saveLayout = () => {
     try {
       localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(dockviewApi.toJSON()));
@@ -217,10 +283,51 @@ export function initDockviewEditor(sceneManager, eventBus) {
     }
   };
 
+  const storedWorkspacePreset = readWorkspacePreset();
+  let workspacePreset = storedWorkspacePreset ?? 'minimal';
+
+  const emitWorkspacePresetChanged = () => {
+    eventBus.emit('workspace:layoutPresetChanged', { preset: workspacePreset });
+  };
+
+  const applyWorkspaceLayout = (preset, options = {}) => {
+    workspacePreset = normalizeWorkspacePreset(preset);
+    if (options.clearSavedLayout) {
+      localStorage.removeItem(LAYOUT_STORAGE_KEY);
+    }
+    createWorkspaceLayout(dockviewApi, workspacePreset);
+    saveWorkspacePreset(workspacePreset);
+    saveLayout();
+    emitWorkspacePresetChanged();
+  };
+
+  const restored = tryRestoreLayout(dockviewApi);
+  if (!restored) {
+    applyWorkspaceLayout(workspacePreset);
+  } else {
+    if (!storedWorkspacePreset) {
+      workspacePreset = 'advanced';
+      saveWorkspacePreset(workspacePreset);
+    }
+    emitWorkspacePresetChanged();
+  }
+
   const layoutDispose = dockviewApi.onDidLayoutChange?.(() => saveLayout());
+  const workspaceDisposers = [
+    eventUnsub(eventBus, 'workspace:layoutPresetRequested', (payload) => {
+      applyWorkspaceLayout(payload?.preset, { clearSavedLayout: true });
+    }),
+    eventUnsub(eventBus, 'workspace:resetLayoutRequested', () => {
+      applyWorkspaceLayout(workspacePreset, { clearSavedLayout: true });
+    }),
+    eventUnsub(eventBus, 'workspace:requestPreset', () => {
+      emitWorkspacePresetChanged();
+    })
+  ];
   window.addEventListener('beforeunload', saveLayout, { once: true });
 
   return () => {
+    for (const dispose of workspaceDisposers.splice(0)) dispose();
     layoutDispose?.dispose?.();
     dockviewApi.dispose();
     chrome.dispose();
