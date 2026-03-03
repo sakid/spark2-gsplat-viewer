@@ -14,6 +14,7 @@
 html,
 body,
 #app,
+#spark-shell,
 #dockview-root {
   margin: 0;
   width: 100%;
@@ -26,7 +27,15 @@ body {
   color: var(--editor-text);
 }
 
+#spark-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 #dockview-root {
+  flex: 1;
+  min-height: 0;
   background: var(--editor-bg);
 }
 
@@ -38,6 +47,87 @@ body {
   --dv-color-abyss-primary-text: var(--editor-text);
   --dv-color-abyss-secondary-text: var(--editor-muted);
   --dv-color-abyss-accent: #4ea8ff;
+}
+
+.spark-topbar {
+  display: grid;
+  grid-template-columns: auto auto auto auto auto minmax(180px, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--editor-border);
+  background: linear-gradient(180deg, #0f1824 0%, #0d141f 100%);
+}
+
+.spark-topbar-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.spark-topbar-label {
+  color: var(--editor-muted);
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.spark-topbar-select,
+.spark-topbar-number,
+.spark-topbar button {
+  border: 1px solid var(--editor-border);
+  background: #0f1823;
+  color: var(--editor-text);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+}
+
+.spark-topbar-select,
+.spark-topbar-number {
+  min-width: 72px;
+}
+
+.spark-topbar button {
+  cursor: pointer;
+}
+
+.spark-topbar-tool.active {
+  border-color: var(--editor-accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--editor-accent) 45%, transparent);
+}
+
+.spark-topbar-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--editor-muted);
+}
+
+.spark-topbar-snap {
+  gap: 4px;
+}
+
+.spark-topbar #spark-status {
+  margin: 0;
+  justify-self: end;
+  text-align: right;
+  font-size: 0.78rem;
+  color: var(--editor-muted);
+}
+
+@media (max-width: 1320px) {
+  .spark-topbar {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .spark-topbar #spark-status {
+    grid-column: 1 / -1;
+    justify-self: start;
+    text-align: left;
+  }
 }
 
 .spark-panel {

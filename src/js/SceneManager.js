@@ -6,6 +6,7 @@ import { selectLodSplatCount } from './internal/lodPolicy';
 import { bindUi } from './internal/uiBindings';
 import { EditorCommandHistory } from './internal/editorCommandHistory';
 import { applySparkCovOnlyPatch } from './internal/patchSparkCovOnly';
+import { applySelectionClick, pickSelectionObject } from './internal/selectionPicking';
 import { GeneralLights } from './sceneSubjects/GeneralLights';
 import { CameraControls } from './sceneSubjects/CameraControls';
 import { RenderQuality } from './sceneSubjects/RenderQuality';
@@ -117,6 +118,12 @@ export class SceneManager {
     this.selectionDispose = () => {};
     this.editorDisposers = [];
     this.transformDragStart = null;
+    this.transformDragging = false;
+    this.editorTransformMode = 'translate';
+    this.selectionRaycaster = new THREE.Raycaster();
+    this.selectionPointer = new THREE.Vector2();
+    this.pointerDownSelection = null;
+    this.selectionOutline = null;
     this.snapSettings = {
       enabled: true,
       space: 'world',
@@ -174,7 +181,20 @@ export class SceneManager {
     this.editorTransformControls.visible = false;
     this.editorTransformControls.setMode('translate');
     this.editorTransformControls.setSpace('world');
+    this.editorTransformControls.userData = {
+      ...(this.editorTransformControls.userData ?? {}),
+      editorIgnorePicking: true
+    };
     this.scene.add(this.editorTransformControls);
+
+    this.selectionOutline = new THREE.BoxHelper(undefined, 0x6ec1ff);
+    this.selectionOutline.name = 'EditorSelectionOutline';
+    this.selectionOutline.visible = false;
+    this.selectionOutline.userData = {
+      ...(this.selectionOutline.userData ?? {}),
+      editorIgnorePicking: true
+    };
+    this.scene.add(this.selectionOutline);
 
     this.entities = [
       new GeneralLights(),
@@ -219,6 +239,7 @@ export class SceneManager {
       this.selectedObjectUuids = uuids;
       this.selectedObjectUuid = uuids[0] ?? null;
       this.updateEditorTransformBinding();
+      this.updateSelectionOutline();
     };
     this.selectionDispose = this.eventBus.on?.('selectionChanged', onSelectionChanged)
       ?? (() => this.eventBus.off?.('selectionChanged', onSelectionChanged));
@@ -284,6 +305,7 @@ export class SceneManager {
 
     const onDragStateChanged = (event) => {
       const dragging = Boolean(event?.value);
+      this.transformDragging = dragging;
       this.eventBus.emit('controls:orbitSuppress', dragging);
       if (dragging) {
         this.transformDragStart = controls.object ? toTransformSnapshot(controls.object) : null;
@@ -311,6 +333,7 @@ export class SceneManager {
 
     const onObjectChange = () => {
       this.eventBus.emit('hierarchyChanged');
+      this.updateSelectionOutline();
     };
 
     controls.addEventListener('dragging-changed', onDragStateChanged);
@@ -326,11 +349,15 @@ export class SceneManager {
     busOn('controls:mode', (mode) => {
       this.interactionMode = mode || 'view';
       this.updateEditorTransformBinding();
+      this.updateSelectionOutline();
     });
+    busOn('editor:transformModeRequested', (payload) => this.handleTransformModeRequested(payload));
     busOn('editor:snapSettingsChanged', (settings) => this.applySnapSettings(settings));
     busOn('editor:undoRequested', () => this.undoEditorCommand());
     busOn('editor:redoRequested', () => this.redoEditorCommand());
     busOn('dom:keydown', (event) => this.handleEditorShortcuts(event));
+    busOn('dom:mousedown', (event) => this.handleViewportPointerDown(event));
+    busOn('dom:mouseup', (event) => this.handleViewportPointerUp(event));
     busOn('hierarchy:visibilityRequested', (payload) => this.handleVisibilityToggle(payload));
     busOn('hierarchy:lockRequested', (payload) => this.handleLockToggle(payload));
     busOn('hierarchy:reparentRequested', (payload) => this.handleReparentRequest(payload));
@@ -338,6 +365,9 @@ export class SceneManager {
     busOn('hierarchy:focusRequested', () => {
       this.eventBus.emit('selection:focusRequested');
     });
+    busOn('hierarchyChanged', () => this.updateSelectionOutline());
+
+    this.eventBus.emit('editor:transformModeChanged', { mode: this.editorTransformMode });
   }
 
   applySnapSettings(settings) {
@@ -376,6 +406,7 @@ export class SceneManager {
 
     const selected = this.getPrimarySelectedObject();
     const canAttach = this.interactionMode === 'object-edit'
+      && this.editorTransformMode !== 'select'
       && isEditableSelectionObject(selected, this.scene, this.camera, this.sparkRenderer);
     if (!canAttach) {
       controls.detach();
@@ -387,6 +418,7 @@ export class SceneManager {
 
     controls.enabled = true;
     controls.visible = true;
+    controls.setMode(this.editorTransformMode === 'rotate' || this.editorTransformMode === 'scale' ? this.editorTransformMode : 'translate');
     if (controls.object !== selected) {
       controls.attach(selected);
     }
@@ -395,15 +427,132 @@ export class SceneManager {
   setEditorTransformMode(mode) {
     const controls = this.editorTransformControls;
     if (!controls) return;
-    const normalized = mode === 'rotate' || mode === 'scale' ? mode : 'translate';
-    if (normalized === 'translate' || normalized === 'rotate' || normalized === 'scale') {
-      if (!controls.object) {
-        this.updateEditorTransformBinding();
-      }
-      controls.setMode(normalized);
-      controls.visible = true;
-      this.setStatus(`Transform mode: ${normalized}.`, 'info');
+    const normalized = mode === 'select' || mode === 'rotate' || mode === 'scale' ? mode : 'translate';
+    this.editorTransformMode = normalized;
+    this.eventBus.emit('editor:transformModeChanged', { mode: normalized });
+    if (normalized === 'select') {
+      controls.detach();
+      controls.visible = false;
+      controls.enabled = false;
+      this.eventBus.emit('controls:orbitSuppress', false);
+      return;
     }
+    if (!controls.object) this.updateEditorTransformBinding();
+    controls.setMode(normalized);
+    controls.visible = true;
+    this.setStatus(`Transform mode: ${normalized}.`, 'info');
+  }
+
+  handleTransformModeRequested(payload = {}) {
+    const mode = payload?.mode;
+    const normalized = mode === 'select' || mode === 'rotate' || mode === 'scale' || mode === 'translate'
+      ? mode
+      : 'translate';
+    if (normalized !== 'select' && this.interactionMode !== 'object-edit') {
+      this.eventBus.emit('editor:objectEditMode', true);
+      this.eventBus.emit('gameplay:enable', false);
+      this.eventBus.emit('environment:sheepGizmoEnabled', false);
+      this.eventBus.emit('environment:voxelEditMode', false);
+      this.eventBus.emit('controls:mode', 'object-edit');
+    }
+    this.setEditorTransformMode(normalized);
+  }
+
+  isPickingEnabledForMode() {
+    return this.interactionMode !== 'gameplay';
+  }
+
+  handleViewportPointerDown(event) {
+    if (!this.isPickingEnabledForMode()) return;
+    if (event?.button !== 0) return;
+    const canvas = this.renderer?.domElement;
+    if (!canvas || event?.target !== canvas) return;
+    this.pointerDownSelection = {
+      x: Number(event?.clientX ?? 0),
+      y: Number(event?.clientY ?? 0),
+      time: performance.now(),
+      target: event.target
+    };
+  }
+
+  handleViewportPointerUp(event) {
+    const pending = this.pointerDownSelection;
+    this.pointerDownSelection = null;
+    if (!pending || !this.isPickingEnabledForMode()) return;
+    if (event?.button !== 0) return;
+    const canvas = this.renderer?.domElement;
+    if (!canvas || event?.target !== canvas || pending.target !== event.target) return;
+    if (document.pointerLockElement === canvas || this.transformDragging) return;
+
+    const x = Number(event?.clientX ?? 0);
+    const y = Number(event?.clientY ?? 0);
+    const dx = x - pending.x;
+    const dy = y - pending.y;
+    if ((dx * dx + dy * dy) > 16) return;
+    if ((performance.now() - pending.time) > 900) return;
+
+    this.pickViewportSelection(event);
+  }
+
+  isIgnoredPickObject(object) {
+    if (!object) return true;
+    if (object.userData?.editorIgnorePicking) return true;
+    if (this.editorTransformControls && (object === this.editorTransformControls || this.editorTransformControls.children.includes(object))) {
+      return true;
+    }
+    let cursor = object.parent;
+    while (cursor) {
+      if (cursor.userData?.editorIgnorePicking) return true;
+      if (cursor === this.editorTransformControls) return true;
+      cursor = cursor.parent;
+    }
+    return false;
+  }
+
+  pickViewportSelection(event) {
+    const scene = this.scene;
+    const camera = this.camera;
+    const canvas = this.renderer?.domElement;
+    if (!scene || !camera || !canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const width = Math.max(rect.width, 1);
+    const height = Math.max(rect.height, 1);
+    const x = ((Number(event?.clientX ?? 0) - rect.left) / width) * 2 - 1;
+    const y = -(((Number(event?.clientY ?? 0) - rect.top) / height) * 2 - 1);
+    this.selectionPointer.set(x, y);
+    this.selectionRaycaster.setFromCamera(this.selectionPointer, camera);
+    const intersections = this.selectionRaycaster.intersectObjects(scene.children, true);
+    const selected = pickSelectionObject(intersections, scene, (object) => this.isIgnoredPickObject(object));
+
+    const additive = Boolean(event?.metaKey || event?.ctrlKey);
+    const extend = Boolean(event?.shiftKey);
+    const nextSelection = applySelectionClick(this.selectedObjectUuids, selected?.uuid ?? null, { additive, extend });
+    if (!selected && (additive || extend)) return;
+
+    this.eventBus.emit('selectionChanged', {
+      target: 'object',
+      uuids: nextSelection,
+      object: selected ?? null
+    });
+  }
+
+  updateSelectionOutline() {
+    const selected = this.getPrimarySelectedObject();
+    const outline = this.selectionOutline;
+    if (!outline) return;
+    if (
+      !selected
+      || this.interactionMode === 'gameplay'
+      || selected === this.scene
+      || selected === this.sparkRenderer
+      || selected.isCamera
+    ) {
+      outline.visible = false;
+      return;
+    }
+    outline.setFromObject(selected);
+    outline.visible = true;
   }
 
   undoEditorCommand() {
@@ -459,8 +608,7 @@ export class SceneManager {
     if (this.interactionMode === 'object-edit') {
       if (key === 'q') {
         event.preventDefault?.();
-        this.editorTransformControls?.detach?.();
-        this.editorTransformControls && (this.editorTransformControls.visible = false);
+        this.setEditorTransformMode('select');
         this.setStatus('Transform gizmo hidden (Q).', 'info');
         return;
       }
@@ -1108,6 +1256,14 @@ export class SceneManager {
     for (const entity of [...this.entities].reverse()) entity.dispose();
     this.selectionDispose?.();
     for (const dispose of this.editorDisposers.splice(0)) dispose();
+    this.selectionOutline?.removeFromParent?.();
+    this.selectionOutline?.geometry?.dispose?.();
+    if (Array.isArray(this.selectionOutline?.material)) {
+      for (const material of this.selectionOutline.material) material?.dispose?.();
+    } else {
+      this.selectionOutline?.material?.dispose?.();
+    }
+    this.selectionOutline = null;
     this.editorTransformControls?.removeFromParent?.();
     this.editorTransformControls?.dispose?.();
     this.editorTransformControls = null;

@@ -7,6 +7,9 @@ bd.sock
 bd.sock.startlock
 sync-state.json
 last-touched
+dolt-monitor.pid
+dolt-server.activity
+dolt-server.port
 
 # Local version tracking (prevents upgrade notification spam after git ops)
 .local_version
@@ -30,6 +33,9 @@ ephemeral.sqlite3-shm
 dolt-server.pid
 dolt-server.log
 dolt-server.lock
+
+# Project-local fallback Dolt remote
+dolt-remote/
 
 # Legacy files (from pre-Dolt versions)
 *.db

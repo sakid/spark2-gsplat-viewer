@@ -30,6 +30,10 @@ export class ExternalProxyRuntime {
     this.asset = await loadProxyFromFile(file);
     this.container = new THREE.Group();
     this.container.name = `${file.name || 'proxy'}::ProxyContainer`;
+    this.container.userData = {
+      ...(this.container.userData ?? {}),
+      editorSelectableRoot: true
+    };
     this.container.add(this.asset.gltfRoot ?? this.asset.root);
     this.animatedRoot = this.asset.animatedRoot ?? this.asset.gltfRoot ?? this.asset.root;
     this.staticColliders = this.asset.colliders ?? [];
@@ -56,6 +60,10 @@ export class ExternalProxyRuntime {
       helper.name = `${skinned.name || 'proxy'}::SkeletonHelper`;
       helper.visible = false;
       helper.frustumCulled = false;
+      helper.userData = {
+        ...(helper.userData ?? {}),
+        editorIgnorePicking: true
+      };
       if (helper.material?.color?.setHex) {
         helper.material.color.setHex(0x60a5fa);
       }
@@ -92,6 +100,10 @@ export class ExternalProxyRuntime {
         marker.name = `${bone.name || 'bone'}::Marker`;
         marker.visible = false;
         marker.renderOrder = 901;
+        marker.userData = {
+          ...(marker.userData ?? {}),
+          editorIgnorePicking: true
+        };
         bone.add(marker);
         markers.push(marker);
       }

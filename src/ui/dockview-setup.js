@@ -13,6 +13,7 @@ import { Outliner } from './outliner.js';
 import { Inspector } from './inspector.js';
 import { ContentBrowser } from './contentBrowser.js';
 import { DialogPanel } from './dialog.js';
+import { createEditorChrome } from './editorChrome.js';
 import { LEGACY_CONTROLS_HTML } from './templates/legacyControlsHtml.js';
 
 const LAYOUT_STORAGE_KEY = 'spark-editor-layout-v1';
@@ -117,10 +118,17 @@ export function initDockviewEditor(sceneManager, eventBus) {
 
   app.replaceChildren();
 
+  const shell = document.createElement('div');
+  shell.id = 'spark-shell';
+  app.append(shell);
+
+  const chrome = createEditorChrome(eventBus);
+  shell.append(chrome.element);
+
   const dockRoot = document.createElement('div');
   dockRoot.id = 'dockview-root';
   dockRoot.className = 'dv-theme-abyss';
-  app.append(dockRoot);
+  shell.append(dockRoot);
 
   const dockviewApi = createDockview(dockRoot, {
     createComponent(options) {
@@ -215,5 +223,6 @@ export function initDockviewEditor(sceneManager, eventBus) {
   return () => {
     layoutDispose?.dispose?.();
     dockviewApi.dispose();
+    chrome.dispose();
   };
 }

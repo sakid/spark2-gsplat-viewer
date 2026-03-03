@@ -203,5 +203,14 @@ html, body, #app {
 #status.warning { color: #fcd34d; }
 #status.error { color: #fca5a5; }
 
+#spark-status {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+#spark-status.success { color: #86efac; }
+#spark-status.warning { color: #fcd34d; }
+#spark-status.error { color: #fca5a5; }
+
 #voxel-edit-controls { display: grid; gap: 6px; }
 #missing-splat-prompt { border: 1px solid rgba(252, 211, 77, 0.4); padding: 8px; border-radius: 8px; }

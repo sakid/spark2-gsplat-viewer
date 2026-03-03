@@ -12,6 +12,22 @@ export function createStatusReporter(statusElement) {
 
   const resolveStatusElement = (root = null) => {
     if (root && typeof root.querySelector === 'function') {
+      const preferredScoped = root.querySelector('#spark-status');
+      if (preferredScoped) {
+        currentStatusElement = preferredScoped;
+        return preferredScoped;
+      }
+    }
+
+    if (typeof document !== 'undefined') {
+      const preferredGlobal = document.getElementById('spark-status');
+      if (preferredGlobal) {
+        currentStatusElement = preferredGlobal;
+        return preferredGlobal;
+      }
+    }
+
+    if (root && typeof root.querySelector === 'function') {
       const scoped = root.querySelector('#status');
       if (scoped) {
         currentStatusElement = scoped;

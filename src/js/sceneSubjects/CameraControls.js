@@ -15,6 +15,7 @@ export class CameraControls {
     this.verticalVelocity = 0;
     this.isGrounded = false;
     this.mode = 'view';
+    this.navigationMode = 'fly';
     this.orbitSuppressed = false;
     this.collisionEnabled = false;
     this.tempFront = new THREE.Vector3();
@@ -25,6 +26,9 @@ export class CameraControls {
     this.tempResolved = new THREE.Vector3();
     this.resolveOptions = { collisionEnabled: false, radius: 0.22, height: 1.35, out: this.tempResolved };
     this.selectedObject = null;
+    this.preventContextMenu = (event) => {
+      event.preventDefault();
+    };
   }
 
   async init(context) {
@@ -34,6 +38,9 @@ export class CameraControls {
     this.orbit = new OrbitControls(this.camera, this.dom);
     this.orbit.enabled = false;
     this.orbit.enableDamping = true;
+    if (typeof this.dom?.addEventListener === 'function') {
+      this.dom.addEventListener('contextmenu', this.preventContextMenu);
+    }
 
     this.yaw = this.camera.rotation.y;
     this.pitch = this.camera.rotation.x;
@@ -44,10 +51,20 @@ export class CameraControls {
     }));
 
     this.unsubscribers.push(context.eventBus.on('controls:mode', (mode) => {
-      this.mode = mode;
+      this.mode = mode ?? 'view';
       this.keys.clear();
       this.updateOrbitEnabled();
-      if (mode !== 'view' && document.pointerLockElement === this.dom) {
+      if ((mode !== 'view' || this.navigationMode !== 'fly') && this.isPointerLockedToDom()) {
+        document.exitPointerLock();
+      }
+      this.emitPlayerState();
+    }));
+
+    this.unsubscribers.push(context.eventBus.on('controls:navigationMode', (mode) => {
+      this.navigationMode = mode === 'orbit' ? 'orbit' : 'fly';
+      this.keys.clear();
+      this.updateOrbitEnabled();
+      if (this.navigationMode !== 'fly' && this.isPointerLockedToDom()) {
         document.exitPointerLock();
       }
       this.emitPlayerState();
@@ -59,7 +76,7 @@ export class CameraControls {
     }));
 
     this.unsubscribers.push(context.eventBus.on('dom:keydown', (event) => {
-      if (this.mode !== 'view') return;
+      if (this.mode !== 'view' || this.navigationMode !== 'fly') return;
       this.keys.add(event.code);
     }));
 
@@ -68,18 +85,33 @@ export class CameraControls {
     }));
 
     this.unsubscribers.push(context.eventBus.on('dom:mousedown', (event) => {
-      if (this.mode !== 'view') return;
-      if (event.target !== this.dom || event.button !== 0) return;
+      if (this.mode !== 'view' || this.navigationMode !== 'fly') return;
+      if (event.target !== this.dom || event.button !== 2) return;
+      event.preventDefault?.();
       this.dom.requestPointerLock?.();
     }));
 
+    this.unsubscribers.push(context.eventBus.on('dom:mouseup', (event) => {
+      if (this.mode !== 'view' || this.navigationMode !== 'fly') return;
+      if (event.button !== 2) return;
+      if (this.isPointerLockedToDom()) {
+        document.exitPointerLock();
+      }
+    }));
+
     this.unsubscribers.push(context.eventBus.on('dom:mousemove', (event) => {
-      if (this.mode !== 'view') return;
-      if (document.pointerLockElement !== this.dom) return;
+      if (this.mode !== 'view' || this.navigationMode !== 'fly') return;
+      if (!this.isPointerLockedToDom()) return;
       this.yaw -= event.movementX * 0.0022;
       this.pitch -= event.movementY * 0.0022;
       this.pitch = THREE.MathUtils.clamp(this.pitch, -1.52, 1.52);
       this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
+    }));
+
+    this.unsubscribers.push(context.eventBus.on('dom:pointerlockchange', () => {
+      if (this.isPointerLockedToDom()) return;
+      this.keys.clear();
+      this.emitPlayerState();
     }));
 
     this.unsubscribers.push(context.eventBus.on('selectionChanged', (payload) => {
@@ -99,6 +131,8 @@ export class CameraControls {
       collisionEnabled: this.collisionEnabled,
       isGrounded: this.isGrounded,
       mode: this.mode,
+      navigationMode: this.navigationMode,
+      pointerLocked: this.isPointerLockedToDom(),
       position: {
         x: this.camera.position.x,
         y: this.camera.position.y,
@@ -109,7 +143,12 @@ export class CameraControls {
 
   updateOrbitEnabled() {
     if (!this.orbit) return;
-    this.orbit.enabled = this.mode !== 'view' && !this.orbitSuppressed;
+    const viewOrbit = this.mode === 'view' && this.navigationMode === 'orbit';
+    this.orbit.enabled = (this.mode !== 'view' || viewOrbit) && !this.orbitSuppressed;
+  }
+
+  isPointerLockedToDom() {
+    return typeof document !== 'undefined' && document.pointerLockElement === this.dom;
   }
 
   focusSelectedObject() {
@@ -145,6 +184,14 @@ export class CameraControls {
     }
 
     if (this.mode !== 'view') {
+      return;
+    }
+
+    if (this.navigationMode !== 'fly') {
+      return;
+    }
+
+    if (!this.isPointerLockedToDom()) {
       return;
     }
 
@@ -203,6 +250,9 @@ export class CameraControls {
   dispose() {
     for (const unbind of this.unsubscribers.splice(0)) {
       unbind();
+    }
+    if (typeof this.dom?.removeEventListener === 'function') {
+      this.dom.removeEventListener('contextmenu', this.preventContextMenu);
     }
     this.orbit.dispose();
   }
