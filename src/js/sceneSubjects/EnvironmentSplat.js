@@ -33,6 +33,9 @@ export class EnvironmentSplat {
     this.proxyDeformSplat = true;
     this.proxyAlignProfile = 'auto';
     this.externalAutoAlign = true;
+    this.showProxyRequested = true;
+    this.showProxyBonesRequested = false;
+    this.viewMode = 'full';
   }
 
   async init(context) {
@@ -47,6 +50,8 @@ export class EnvironmentSplat {
     on('environment:showProxy', (enabled) => this.setProxyVisible(enabled));
     on('environment:proxyEditMode', (enabled) => enabled && this.setProxyVisible(true));
     on('environment:generateVoxel', () => this.generateVoxel());
+    on('environment:regenerateVoxelRig', () => this.regenerateVoxelRig());
+    on('environment:runVoxelWorkflow', (payload) => this.runVoxelWorkflow(payload));
     on('environment:exportVoxelGlb', () => exportVoxelProxyGlb({
       voxelData: this.voxelData,
       baseName: this.splatMesh?.name || 'environment',
@@ -66,7 +71,10 @@ export class EnvironmentSplat {
     on('environment:proxyAnimRestart', () => this.restartProxyAnimation());
     on('environment:proxyCollisionMode', (mode) => this.setProxyCollisionMode(mode));
     on('environment:proxyDeformSplat', (enabled) => this.setProxyDeformEnabled(enabled));
+    on('environment:viewMode', (mode) => this.setViewMode(mode));
+    on('environment:showProxyBones', (enabled) => this.setProxyBonesVisible(enabled));
     on('environment:requestProxyClipList', () => this.emitProxyClipList());
+    on('environment:requestProxyKind', () => this.emitProxyKind());
 
     await this.loadDefault();
 
@@ -76,12 +84,15 @@ export class EnvironmentSplat {
     } catch {
       // Boot proxy is optional.
     }
+
+    this.emitProxyKind();
   }
 
   setTransformFlag(flag, enabled) {
     this.transforms.setFlag(flag, enabled);
-    if (this.splatMesh) this.transforms.applySplat(this.splatMesh);
+    if (this.splatMesh) this.applySplatTransform();
     this.syncExternalProxy({ autoAlign: this.externalAutoAlign });
+    if (this.splatMesh) this.applySplatTransform();
     this.external?.rebindDeformer(this.splatMesh);
     if (this.proxyKind === 'voxel' && (flag === 'flipUpDown' || flag === 'flipLeftRight')) this.generateVoxel();
   }
@@ -110,6 +121,21 @@ export class EnvironmentSplat {
     this.external?.rebindDeformer(this.splatMesh);
     this.context.setStatus(`Proxy alignment profile: ${next}.`, 'info');
   }
+
+  normalizeViewMode(mode) {
+    return mode === 'splats-only' ? 'splats-only' : 'full';
+  }
+
+  setViewMode(mode) {
+    const next = this.normalizeViewMode(mode);
+    if (this.viewMode === next) return;
+    this.viewMode = next;
+    this.applyViewSettings();
+    this.context.setStatus(
+      next === 'splats-only' ? 'Viewing mode: Gaussian splats only.' : 'Viewing mode: Full scene.',
+      'info'
+    );
+  }
   getProxyAlignmentOptions() {
     const asset = this.external?.asset;
     const hasSkeleton = Boolean(asset?.skinnedMeshes?.length);
@@ -136,6 +162,68 @@ export class EnvironmentSplat {
     this.transforms.applyProxy(this.proxyRoot);
   }
 
+  isSplatsOnlyView() {
+    return this.viewMode === 'splats-only';
+  }
+
+  applyProxyVisibility() {
+    const visible = this.showProxyRequested && !this.isSplatsOnlyView();
+    if (this.proxyKind === 'external') {
+      if (typeof this.external?.setMeshVisible === 'function') this.external.setMeshVisible(visible);
+      else this.external?.setVisible(visible);
+      return;
+    }
+    if (this.proxyKind === 'voxel') {
+      this.voxelRuntime?.setVisible(visible);
+      return;
+    }
+    if (this.proxyRoot) {
+      this.proxyRoot.visible = visible;
+    }
+  }
+
+  applyBoneVisibility() {
+    const visible = this.showProxyBonesRequested && !this.isSplatsOnlyView();
+    if (this.proxyKind === 'external') {
+      this.external?.setBonesVisible(visible);
+    } else if (this.proxyKind === 'voxel') {
+      this.voxelRuntime?.setBonesVisible(visible);
+    } else {
+      this.external?.setBonesVisible(false);
+      this.voxelRuntime?.setBonesVisible(false);
+    }
+  }
+
+  applyViewSettings() {
+    this.applyProxyVisibility();
+    this.applyBoneVisibility();
+  }
+
+  getSplatTransformParent() {
+    if (!this.proxyRoot) return null;
+    if (this.proxyKind === 'external' || this.proxyKind === 'voxel') return this.proxyRoot;
+    return null;
+  }
+
+  applySplatTransform() {
+    if (!this.splatMesh) return;
+    this.transforms.applySplat(this.splatMesh, this.getSplatTransformParent());
+  }
+
+  parentSplatUnderProxy() {
+    if (!this.splatMesh || !this.proxyRoot) return;
+    this.proxyRoot.updateMatrixWorld(true);
+    this.transforms.captureSplat(this.splatMesh, this.proxyRoot);
+    this.applySplatTransform();
+  }
+
+  detachSplatFromProxy() {
+    if (!this.splatMesh) return;
+    this.splatMesh.updateMatrixWorld(true);
+    this.transforms.captureSplat(this.splatMesh);
+    this.transforms.applySplat(this.splatMesh);
+  }
+
   async loadSplat(loader, loadingStatus, successStatus) {
     try {
       if (this.proxyKind === 'voxel') this.removeProxy();
@@ -144,48 +232,55 @@ export class EnvironmentSplat {
       this.transforms.captureSplat(this.splatMesh);
       this.transforms.applySplat(this.splatMesh);
       this.syncExternalProxy({ autoAlign: this.externalAutoAlign });
+      this.parentSplatUnderProxy();
       this.external?.rebindDeformer(this.splatMesh);
       frameCameraToSplat(this.context.camera, this.splatMesh);
       this.context.eventBus.emit('environment:splatLoaded', this.splatMesh);
       this.context.setStatus(successStatus, 'success');
+      return true;
     } catch (error) {
       this.context.setStatus(`${successStatus.replace('loaded.', 'load failed:')} ${error.message}`, 'error');
       console.error(error);
+      return false;
     }
   }
 
   async loadDefault() {
-    try {
-      await this.loadSplat(
-        () => loadSplatFromUrl({
-          url: DEFAULT_ENVIRONMENT_SPLAT,
-          scene: this.context.scene,
-          sparkModule: this.context.sparkModule,
-          previousMesh: this.splatMesh
-        }),
-        'Loading canonical environment splat...',
-        'Environment splat loaded.'
-      );
+    const loadedCanonical = await this.loadSplat(
+      () => loadSplatFromUrl({
+        url: DEFAULT_ENVIRONMENT_SPLAT,
+        scene: this.context.scene,
+        sparkModule: this.context.sparkModule,
+        previousMesh: this.splatMesh
+      }),
+      'Loading canonical environment splat...',
+      'Environment splat loaded.'
+    );
+    if (loadedCanonical) {
       setLoadedName('splat-loaded-name', 'Loaded: Sean_Sheep.spz');
-    } catch {
-      await this.loadSplat(
-        () => loadSplatFromUrl({
-          url: FALLBACK_SPLAT_URL,
-          scene: this.context.scene,
-          sparkModule: this.context.sparkModule,
-          previousMesh: this.splatMesh
-        }),
-        'Loading fallback environment splat...',
-        'Environment splat loaded.'
-      );
+      return true;
+    }
+
+    const loadedFallback = await this.loadSplat(
+      () => loadSplatFromUrl({
+        url: FALLBACK_SPLAT_URL,
+        scene: this.context.scene,
+        sparkModule: this.context.sparkModule,
+        previousMesh: this.splatMesh
+      }),
+      'Loading fallback environment splat...',
+      'Environment splat loaded.'
+    );
+    if (loadedFallback) {
       setLoadedName('splat-loaded-name', 'Loaded: environment-lod.spz');
     }
+    return loadedFallback;
   }
 
   async loadFile(file) {
-    if (!file) return;
+    if (!file) return false;
     setLoadedName('splat-loaded-name', `Loaded: ${file.name}`);
-    await this.loadSplat(
+    return this.loadSplat(
       () => loadSplatFromFile({
         file,
         scene: this.context.scene,
@@ -199,6 +294,21 @@ export class EnvironmentSplat {
     );
   }
 
+  async runVoxelWorkflow(payload = {}) {
+    const file = payload?.file && typeof payload.file?.name === 'string' ? payload.file : null;
+    if (file) {
+      this.context.setStatus(`Step 1/4: importing splat ${file.name}...`, 'info');
+      const loaded = await this.loadFile(file);
+      if (!loaded) return;
+    } else if (!this.splatMesh) {
+      this.context.setStatus('Step 1/4 is missing. Import a splat first.', 'warning');
+      return;
+    } else {
+      this.context.setStatus('Step 1/4 complete: using currently loaded splat.', 'info');
+    }
+    await this.generateVoxel({ workflow: true });
+  }
+
   async loadProxy(file, options = {}) {
     if (!file) return;
     this.context.setStatus(`Loading proxy mesh ${file.name}...`, 'info');
@@ -210,19 +320,24 @@ export class EnvironmentSplat {
       this.transforms.captureProxy(this.proxyRoot);
       this.transforms.setProxyAutoAlignment({ offset: { x: 0, y: 0, z: 0 }, scale: 1, quaternion: null });
       this.syncExternalProxy({ autoAlign: this.externalAutoAlign });
+      this.parentSplatUnderProxy();
+      this.external.rebindDeformer(this.splatMesh);
       const showProxyInput = document.getElementById('show-proxy-mesh');
       if (showProxyInput && 'checked' in showProxyInput) showProxyInput.checked = true;
+      this.showProxyRequested = true;
       setLoadedName('proxy-loaded-name', `Loaded: ${file.name}`);
       this.external.setDeformEnabled(this.proxyDeformSplat, this.splatMesh);
       this.external.setCollisionMode(this.proxyCollisionMode);
       this.external.animator.setPlaying(true);
-      this.external.setVisible(true);
+      this.applyViewSettings();
       this.emitProxyClipList();
+      this.emitProxyKind();
       this.context.setStatus(`Proxy mesh ${file.name} loaded.`, 'success');
     } catch (error) {
       this.proxyKind = 'none';
       this.proxyRoot = null;
       this.emitProxyClipList();
+      this.emitProxyKind();
       this.context.setStatus(`Proxy mesh load failed: ${error.message}`, 'error');
       console.error(error);
     }
@@ -278,18 +393,14 @@ export class EnvironmentSplat {
     this.external?.setDeformEnabled(this.proxyDeformSplat, this.splatMesh);
   }
 
+  setProxyBonesVisible(enabled) {
+    this.showProxyBonesRequested = Boolean(enabled);
+    this.applyBoneVisibility();
+  }
+
   setProxyVisible(enabled) {
-    if (this.proxyKind === 'external') {
-      this.external?.setVisible(enabled);
-      return;
-    }
-    if (this.proxyKind === 'voxel') {
-      this.voxelRuntime?.setVisible(enabled);
-      return;
-    }
-    if (this.proxyRoot) {
-      this.proxyRoot.visible = enabled;
-    }
+    this.showProxyRequested = Boolean(enabled);
+    this.applyProxyVisibility();
   }
 
   realignProxy() {
@@ -304,11 +415,15 @@ export class EnvironmentSplat {
     );
   }
 
-  async generateVoxel() {
+  async generateVoxel(options = {}) {
+    const workflow = Boolean(options?.workflow);
     if (!this.splatMesh) return this.context.setStatus('Load an environment splat before generating voxels.', 'warning');
 
     try {
-      this.context.setStatus('Generating voxel proxy and auto-rigging bones...', 'info');
+      this.context.setStatus(
+        workflow ? 'Step 2/4: voxelizing splat...' : 'Generating voxel proxy and auto-rigging bones...',
+        'info'
+      );
       const voxelData = await generateStableVoxelData({
         splatMesh: this.splatMesh,
         sparkRenderer: this.context.sparkRenderer,
@@ -316,6 +431,7 @@ export class EnvironmentSplat {
       });
       if (!voxelData) return this.context.setStatus('No solid voxels found for current settings.', 'warning');
 
+      if (workflow) this.context.setStatus('Step 3/4: building procedural rig...', 'info');
       this.removeProxy();
       const root = this.voxelRuntime.bind({
         voxelData,
@@ -335,28 +451,57 @@ export class EnvironmentSplat {
       root.scale.set(1, 1, 1);
       root.updateMatrixWorld(true);
       this.context.scene.add(root);
+      this.parentSplatUnderProxy();
 
       const showProxyInput = document.getElementById('show-proxy-mesh');
       if (showProxyInput && 'checked' in showProxyInput) showProxyInput.checked = true;
-      this.voxelRuntime.setVisible(true);
+      this.showProxyRequested = true;
+      if (workflow) this.context.setStatus('Step 4/4: applying procedural animation...', 'info');
       this.voxelRuntime.setPlaying(true);
+      this.applyViewSettings();
 
       this.voxelData = voxelData;
       this.context.replaceColliders(this.colliderOwner, []);
       setLoadedName('proxy-loaded-name', `Loaded: AutoRig Voxel (${voxelData.activeCount.toLocaleString()} voxels)`);
       this.emitProxyClipList();
+      this.emitProxyKind();
       this.context.setStatus(
-        `Voxel proxy generated (${voxelData.activeCount.toLocaleString()} voxels), auto-rigged (${this.voxelRuntime.boneCount} bones), and procedural animation is playing.`,
+        workflow
+          ? `Workflow complete: voxel proxy generated (${voxelData.activeCount.toLocaleString()} voxels), rigged (${this.voxelRuntime.boneCount} bones), and procedural animation is playing.`
+          : `Voxel proxy generated (${voxelData.activeCount.toLocaleString()} voxels), auto-rigged (${this.voxelRuntime.boneCount} bones), and procedural animation is playing.`,
         'success'
       );
     } catch (error) {
-      this.context.setStatus(`Voxel generation failed: ${error.message}`, 'error');
+      this.context.setStatus(
+        `${workflow ? 'Voxel workflow failed' : 'Voxel generation failed'}: ${error.message}`,
+        'error'
+      );
       console.error(error);
     }
   }
 
+  regenerateVoxelRig() {
+    if (this.proxyKind !== 'voxel') {
+      this.context.setStatus('Generate a voxel proxy before regenerating procedural bones.', 'warning');
+      return;
+    }
+    this.context.setStatus('Regenerating procedural bones from current voxel proxy...', 'info');
+    const regenerated = this.voxelRuntime?.regenerateRig(this.splatMesh);
+    if (!regenerated) {
+      this.context.setStatus('Procedural rig regeneration failed.', 'warning');
+      return;
+    }
+    this.applyViewSettings();
+    this.emitProxyClipList();
+    this.context.setStatus(
+      `Procedural rig regenerated (${this.voxelRuntime.boneCount} bones). Select an animation preset to preview.`,
+      'success'
+    );
+  }
+
   removeProxy() {
     if (this.proxyKind === 'external') {
+      this.detachSplatFromProxy();
       this.external?.dispose();
       this.proxyKind = 'none';
       this.proxyRoot = null;
@@ -366,9 +511,11 @@ export class EnvironmentSplat {
       this.context.clearDynamicColliders(this.colliderOwner);
       this.voxelData = null;
       this.emitProxyClipList();
+      this.emitProxyKind();
       return;
     }
 
+    this.detachSplatFromProxy();
     removeObject(this.context.scene, this.proxyRoot);
     this.proxyDispose?.();
     this.proxyRelease?.();
@@ -382,6 +529,7 @@ export class EnvironmentSplat {
     this.context.clearDynamicColliders(this.colliderOwner);
     this.voxelData = null;
     this.emitProxyClipList();
+    this.emitProxyKind();
   }
 
   emitProxyClipList() {
@@ -391,15 +539,21 @@ export class EnvironmentSplat {
     this.context?.eventBus?.emit('environment:proxyClipList', clips);
   }
 
+  emitProxyKind() {
+    this.context?.eventBus?.emit('environment:proxyKind', this.proxyKind);
+  }
+
   clear() {
     removeObject(this.context.scene, this.splatMesh);
     this.splatMesh?.dispose?.();
     this.splatMesh = null;
     this.transforms.clearSplat();
+    this.context.eventBus.emit('environment:splatLoaded', null);
     this.removeProxy();
   }
 
   update(delta) {
+    this.applySplatTransform();
     this.external?.update(delta);
     this.voxelRuntime?.update(delta);
   }

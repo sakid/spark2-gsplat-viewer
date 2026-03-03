@@ -2,6 +2,12 @@ import * as THREE from 'three';
 
 const unitX = new THREE.Vector3(1, 0, 0);
 const tempQuat = new THREE.Quaternion();
+const tempQuatB = new THREE.Quaternion();
+const tempPos = new THREE.Vector3();
+const tempScale = new THREE.Vector3();
+const tempParentInv = new THREE.Matrix4();
+const tempParentToMesh = new THREE.Matrix4();
+const tempWorld = new THREE.Matrix4();
 const flipQuat = new THREE.Quaternion();
 
 function captureBaseTransform(object) {
@@ -16,6 +22,21 @@ function captureBaseTransform(object) {
 function applyFlipQuaternion(quaternion) {
   flipQuat.setFromAxisAngle(unitX, Math.PI);
   quaternion.multiply(flipQuat);
+}
+
+function captureRelativeTransform(object, parent) {
+  if (!object) return null;
+  if (!parent) return captureBaseTransform(object);
+  parent.updateMatrixWorld(true);
+  object.updateMatrixWorld(true);
+  tempParentInv.copy(parent.matrixWorld).invert();
+  tempParentToMesh.multiplyMatrices(tempParentInv, object.matrixWorld);
+  tempParentToMesh.decompose(tempPos, tempQuatB, tempScale);
+  return {
+    position: tempPos.clone(),
+    quaternion: tempQuatB.clone(),
+    scale: new THREE.Vector3(Math.abs(tempScale.x) || 1, Math.abs(tempScale.y) || 1, Math.abs(tempScale.z) || 1)
+  };
 }
 
 // NEW PROXY ANIMATION
@@ -38,8 +59,8 @@ export class EnvironmentTransforms {
     this[flag] = Boolean(enabled);
   }
 
-  captureSplat(mesh) {
-    this.splatBase = captureBaseTransform(mesh);
+  captureSplat(mesh, parent = null) {
+    this.splatBase = captureRelativeTransform(mesh, parent);
   }
 
   captureProxy(proxy) {
@@ -64,14 +85,30 @@ export class EnvironmentTransforms {
     else this.proxyAlignQuaternion.identity();
   }
 
-  applySplat(mesh) {
+  applySplat(mesh, parent = null) {
     if (!mesh || !this.splatBase) return;
     tempQuat.copy(this.splatBase.quaternion);
     if (this.flipUpDown) applyFlipQuaternion(tempQuat);
-    mesh.position.copy(this.splatBase.position);
-    mesh.quaternion.copy(tempQuat);
-    mesh.scale.copy(this.splatBase.scale);
-    if (this.flipLeftRight) mesh.scale.x = -mesh.scale.x;
+    tempScale.copy(this.splatBase.scale);
+    if (this.flipLeftRight) tempScale.x = -tempScale.x;
+    if (!parent) {
+      mesh.position.copy(this.splatBase.position);
+      mesh.quaternion.copy(tempQuat);
+      mesh.scale.copy(tempScale);
+      mesh.updateMatrixWorld(true);
+      return;
+    }
+    parent.updateMatrixWorld(true);
+    tempParentToMesh.compose(this.splatBase.position, tempQuat, tempScale);
+    tempWorld.multiplyMatrices(parent.matrixWorld, tempParentToMesh);
+    if (mesh.parent) {
+      mesh.parent.updateMatrixWorld(true);
+      tempParentInv.copy(mesh.parent.matrixWorld).invert();
+      tempParentToMesh.multiplyMatrices(tempParentInv, tempWorld);
+      tempParentToMesh.decompose(mesh.position, mesh.quaternion, mesh.scale);
+    } else {
+      tempWorld.decompose(mesh.position, mesh.quaternion, mesh.scale);
+    }
     mesh.updateMatrixWorld(true);
   }
 
