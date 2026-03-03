@@ -1,6 +1,13 @@
 const PROJECT_MANIFEST_URL = '/assets/asset-manifest.json';
 
 const DEFAULT_PROJECT_ASSETS = [
+  {
+    id: 'project-splat-folder-default',
+    name: 'Model.spz (Folder Default)',
+    url: '/@fs/Users/alyoshakidoguchi/Downloads/Model.spz',
+    kind: 'splat',
+    source: 'project'
+  },
   { id: 'project-splat-sean', name: 'Sean_Sheep.spz', url: '/assets/splats/Sean_Sheep.spz', kind: 'splat', source: 'project' },
   {
     id: 'project-proxy-sean',
@@ -192,4 +199,3 @@ export class ContentBrowser {
     this.container.replaceChildren();
   }
 }
-
