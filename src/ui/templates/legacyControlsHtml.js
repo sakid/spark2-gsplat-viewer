@@ -127,7 +127,7 @@ export const LEGACY_CONTROLS_HTML = `
       <button id="outliner-focus-btn" type="button">Focus selected</button>
     </div>
 
-    <small class="meta-line">Voxel walk-cycle authoring (for isolated Sean Sheep auto-rig):</small>
+    <small class="meta-line">Voxel walk-cycle authoring (for isolated actor auto-rig):</small>
     <label for="proxy-anim-phase">Cycle scrub (0-1)</label>
     <input id="proxy-anim-phase" type="range" min="0" max="1" step="0.001" value="0" />
 
@@ -313,6 +313,13 @@ export const LEGACY_CONTROLS_HTML = `
 
       <div id="voxel-edit-controls" style="display:none;">
         <span id="voxel-selection-count">0 selected</span>
+        <div class="light-row-advanced" aria-label="Voxel actor auto-segmentation settings">
+          <label for="voxel-seg-color-threshold">Color threshold</label>
+          <input id="voxel-seg-color-threshold" type="number" min="0.01" max="1" step="0.01" value="0.15" />
+          <label for="voxel-seg-min-count">Min voxels</label>
+          <input id="voxel-seg-min-count" type="number" min="1" step="1" value="80" />
+        </div>
+        <button id="voxel-auto-segment-btn" type="button">Auto-select actor (color)</button>
         <div class="row">
           <button id="voxel-select-connected-btn" type="button">Select connected</button>
           <button id="voxel-invert-selection-btn" type="button">Invert</button>

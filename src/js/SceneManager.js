@@ -20,6 +20,10 @@ import { stampPrim } from '../ui/prim-utils.js';
 import { createSceneFile, listSceneSlotNames } from './internal/sceneStateBridge.js';
 import { VoxelEditState } from '../viewer/voxelEditState';
 import { mergeVoxelKeysToBoxes } from '../viewer/voxelMaskMerge';
+import {
+  autoSelectPrimaryActorVoxelIndices,
+  findLargestConnectedVoxelSeedIndex as findLargestConnectedSeedIndex
+} from './internal/voxelSegmentation';
 
 function flattenMapValues(map, target) {
   target.length = 0;
@@ -389,6 +393,7 @@ export class SceneManager {
     busOn('voxel:undoRequested', () => this.undoVoxelEdit());
     busOn('voxel:invertSelectionRequested', () => this.invertVoxelSelection());
     busOn('voxel:selectConnectedRequested', () => this.selectConnectedVoxels());
+    busOn('voxel:autoSegmentRequested', (payload) => this.autoSelectActorVoxels(payload));
     busOn('voxel:extractActorRequested', () => {
       void this.extractSelectedVoxelActor();
     });
@@ -452,14 +457,17 @@ export class SceneManager {
         return;
       }
 
-      const seedIndex = this.findLargestConnectedVoxelSeedIndex(voxelData);
-      if (!Number.isInteger(seedIndex)) {
-        this.setStatus('Default scene setup skipped: unable to isolate primary voxel component.', 'warning');
+      this.setStatus('Default scene: auto-segmenting primary actor voxels...', 'info');
+      const selection = this.autoSelectActorVoxels(undefined, { silent: true });
+      if (!selection?.selectedCount) {
+        this.setStatus('Default scene setup skipped: unable to select actor voxels.', 'warning');
         return;
       }
+      this.setStatus(
+        `Default scene: selected ${selection.selectedCount.toLocaleString()} voxels via ${selection.strategy} segmentation.`,
+        'info'
+      );
 
-      this.voxelEditState.selectOnly(seedIndex);
-      this.selectConnectedVoxels();
       await this.extractSelectedVoxelActor();
 
       const refreshedEnvironment = this.findEnvironmentEntity();
@@ -477,57 +485,7 @@ export class SceneManager {
   }
 
   findLargestConnectedVoxelSeedIndex(voxelData) {
-    const occupied = voxelData?.occupiedKeys;
-    if (!occupied || occupied.size < 1) return null;
-
-    const parseKey = (key) => {
-      const [x, y, z] = String(key).split(',');
-      return [Number(x) || 0, Number(y) || 0, Number(z) || 0];
-    };
-    const hashKey = (x, y, z) => `${x},${y},${z}`;
-
-    const visited = new Set();
-    let bestKey = null;
-    let bestCount = 0;
-
-    for (const startKey of occupied) {
-      if (visited.has(startKey)) continue;
-      visited.add(startKey);
-      const queue = [startKey];
-      let cursor = 0;
-      let count = 0;
-
-      while (cursor < queue.length) {
-        const key = queue[cursor];
-        cursor += 1;
-        count += 1;
-
-        const [x, y, z] = parseKey(key);
-        const neighbors = [
-          hashKey(x + 1, y, z),
-          hashKey(x - 1, y, z),
-          hashKey(x, y + 1, z),
-          hashKey(x, y - 1, z),
-          hashKey(x, y, z + 1),
-          hashKey(x, y, z - 1)
-        ];
-
-        for (const neighbor of neighbors) {
-          if (!occupied.has(neighbor) || visited.has(neighbor)) continue;
-          visited.add(neighbor);
-          queue.push(neighbor);
-        }
-      }
-
-      if (count > bestCount) {
-        bestCount = count;
-        bestKey = startKey;
-      }
-    }
-
-    if (!bestKey) return null;
-    const seedIndex = voxelData.keyToIndex.get(bestKey);
-    return Number.isInteger(seedIndex) ? seedIndex : null;
+    return findLargestConnectedSeedIndex(voxelData);
   }
 
   clearManagedWorldMask(mesh) {
@@ -635,6 +593,44 @@ export class SceneManager {
       return;
     }
     this.voxelEditState.selectConnectedFrom(selected[0]);
+  }
+
+  autoSelectActorVoxels(options = {}, { silent = false } = {}) {
+    this.syncVoxelEditData();
+    const voxelData = this.voxelEditState.getVoxelData();
+    if (!voxelData) {
+      if (!silent) {
+        this.setStatus('Generate a voxel proxy before auto-segmenting an actor.', 'warning');
+      }
+      return null;
+    }
+
+    const selection = autoSelectPrimaryActorVoxelIndices(voxelData, {
+      colorThreshold: options?.colorThreshold,
+      minCount: options?.minCount,
+      mergeMinSlenderness: options?.mergeMinSlenderness,
+      mergeScoreFraction: options?.mergeScoreFraction,
+      mergeMaxGapScale: options?.mergeMaxGapScale,
+      maxMergedComponents: options?.maxMergedComponents
+    });
+    if (!selection.selectedIndices.length) {
+      if (!silent) {
+        this.setStatus('Actor auto-segmentation found no selectable voxels.', 'warning');
+      }
+      return null;
+    }
+
+    this.voxelEditState.setSelection(selection.selectedIndices);
+    if (!silent) {
+      const mergedText = selection.strategy === 'color-aware'
+        ? ` across ${selection.mergedComponents ?? 1} merged component${(selection.mergedComponents ?? 1) === 1 ? '' : 's'}`
+        : '';
+      this.setStatus(
+        `Actor auto-segment selected ${selection.selectedCount.toLocaleString()} voxels via ${selection.strategy}${mergedText}.`,
+        'info'
+      );
+    }
+    return selection;
   }
 
   getSelectedVoxelKeys(voxelData) {
@@ -814,6 +810,7 @@ export class SceneManager {
         uuids: actor.root?.uuid ? [actor.root.uuid] : [],
         object: actor.root ?? null
       });
+      this.eventBus.emit('selection:focusRequested');
 
       this.setStatus(
         `Extracted actor created (${subsetData.activeCount.toLocaleString()} voxels) with procedural walk cycle.`,

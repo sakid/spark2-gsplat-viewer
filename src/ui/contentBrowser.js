@@ -165,7 +165,10 @@ export class ContentBrowser {
       throw new Error(`Failed to fetch ${asset.url} (${response.status})`);
     }
     const blob = await response.blob();
-    return new File([blob], asset.name || asset.url.split('/').pop() || 'asset.bin');
+    const urlPath = String(asset.url).split('?')[0];
+    const urlName = urlPath.split('/').pop();
+    const fileName = urlName || asset.name || 'asset.bin';
+    return new File([blob], fileName, { type: blob.type || 'application/octet-stream' });
   }
 
   async loadAsset(asset) {

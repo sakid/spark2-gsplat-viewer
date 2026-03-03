@@ -103,6 +103,9 @@ export function bindUi(eventBus, root = document) {
   const voxelSelectConnectedBtn = byId('voxel-select-connected-btn', root);
   const voxelInvertSelectionBtn = byId('voxel-invert-selection-btn', root);
   const voxelExtractActorBtn = byId('voxel-extract-actor-btn', root);
+  const voxelAutoSegmentBtn = byId('voxel-auto-segment-btn', root);
+  const voxelSegColorThreshold = byId('voxel-seg-color-threshold', root);
+  const voxelSegMinCount = byId('voxel-seg-min-count', root);
   const viewMode = byId('view-mode', root);
   const showProxy = byId('show-proxy-mesh', root);
   const showProxyBones = byId('show-proxy-bones', root);
@@ -376,6 +379,9 @@ export function bindUi(eventBus, root = document) {
     if (voxelSelectConnectedBtn) voxelSelectConnectedBtn.disabled = !voxelEditActive || voxelSelectionState.selectedCount !== 1;
     if (voxelInvertSelectionBtn) voxelInvertSelectionBtn.disabled = !voxelEditActive;
     if (voxelExtractActorBtn) voxelExtractActorBtn.disabled = !voxelEditActive || voxelSelectionState.selectedCount < 1;
+    if (voxelAutoSegmentBtn) voxelAutoSegmentBtn.disabled = !voxelEditActive;
+    if (voxelSegColorThreshold) voxelSegColorThreshold.disabled = !voxelEditActive;
+    if (voxelSegMinCount) voxelSegMinCount.disabled = !voxelEditActive;
     syncWorkflowSummary();
   };
 
@@ -476,6 +482,10 @@ export function bindUi(eventBus, root = document) {
   on(exportVoxelGlb, 'click', () => eventBus.emit('environment:exportVoxelGlb'), disposers);
   on(voxelDeleteBtn, 'click', () => eventBus.emit('voxel:deleteSelectedRequested'), disposers);
   on(voxelUndoBtn, 'click', () => eventBus.emit('voxel:undoRequested'), disposers);
+  on(voxelAutoSegmentBtn, 'click', () => eventBus.emit('voxel:autoSegmentRequested', {
+    colorThreshold: Math.max(0.01, Math.min(1, asFiniteNumber(voxelSegColorThreshold?.value, 0.15))),
+    minCount: Math.max(1, Math.floor(asFiniteNumber(voxelSegMinCount?.value, 80)))
+  }), disposers);
   on(voxelSelectConnectedBtn, 'click', () => eventBus.emit('voxel:selectConnectedRequested'), disposers);
   on(voxelInvertSelectionBtn, 'click', () => eventBus.emit('voxel:invertSelectionRequested'), disposers);
   on(voxelExtractActorBtn, 'click', () => eventBus.emit('voxel:extractActorRequested'), disposers);

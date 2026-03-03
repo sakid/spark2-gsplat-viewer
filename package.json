@@ -15,6 +15,7 @@
     "test:collision-smoke": "node scripts/collision-smoke.mjs",
     "test:deform-smoke": "node scripts/deform-smoke.mjs",
     "test:voxel-segmentation-smoke": "node scripts/voxel-segmentation-smoke.mjs",
+    "test:default-actor-smoke": "node scripts/default-actor-smoke.mjs",
     "convert:ply-to-spz": "tsx scripts/convert-ply-to-spz.mts",
     "convert:proxy": "tsx scripts/convert-proxy-mesh.mts"
   },

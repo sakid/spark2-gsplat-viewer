@@ -5,7 +5,7 @@ const BONE_MODE = 'bone';
 const STATIC_MODE = 'static';
 const OFF_MODE = 'off';
 const TAU = Math.PI * 2;
-const PROCEDURAL_CLIPS = ['Idle Sway', 'Sheep Walk Cycle', 'Creature Twist'];
+const PROCEDURAL_CLIPS = ['Idle Sway', 'Walk Cycle', 'Creature Twist'];
 const DEFAULT_WALK_SETTINGS = Object.freeze({
   cycleDuration: 1.1,
   strideDegrees: 24,
