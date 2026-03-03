@@ -37,6 +37,18 @@ const finiteNumber = (value, fallback = 0) => {
   return Number.isFinite(number) ? number : fallback;
 };
 
+const readStartupFlags = () => {
+  if (typeof window === 'undefined') {
+    return {
+      skipBootProxy: false
+    };
+  }
+  const params = new URLSearchParams(window.location.search);
+  return {
+    skipBootProxy: params.get('skipBootProxy') === '1' || params.get('smoke') === '1'
+  };
+};
+
 const removeObject = (scene, object) => {
   if (!object) return;
   scene.remove(object);
@@ -165,13 +177,16 @@ export class EnvironmentSplat {
     on('environment:requestProxyKind', () => this.emitProxyKind());
     on('environment:requestProxyAnimState', () => this.emitProxyAnimationState());
 
+    const startupFlags = readStartupFlags();
     await this.loadDefault();
 
-    try {
-      await this.loadProxy(await fetchAssetAsFile(DEFAULT_BOOT_PROXY_URL, 'sean_proxy_animated.glb'), { forceAutoAlign: true });
-      setLoadedName('proxy-loaded-name', 'Loaded: sean_proxy_animated.glb');
-    } catch {
-      // Boot proxy is optional.
+    if (!startupFlags.skipBootProxy) {
+      try {
+        await this.loadProxy(await fetchAssetAsFile(DEFAULT_BOOT_PROXY_URL, 'sean_proxy_animated.glb'), { forceAutoAlign: true });
+        setLoadedName('proxy-loaded-name', 'Loaded: sean_proxy_animated.glb');
+      } catch {
+        // Boot proxy is optional.
+      }
     }
 
     this.emitProxyKind();

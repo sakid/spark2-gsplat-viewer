@@ -314,9 +314,14 @@ export const LEGACY_CONTROLS_HTML = `
       <div id="voxel-edit-controls" style="display:none;">
         <span id="voxel-selection-count">0 selected</span>
         <div class="row">
+          <button id="voxel-select-connected-btn" type="button">Select connected</button>
+          <button id="voxel-invert-selection-btn" type="button">Invert</button>
+        </div>
+        <div class="row">
           <button id="voxel-delete-btn" type="button">Delete selected</button>
           <button id="voxel-undo-btn" type="button">Undo</button>
         </div>
+        <button id="voxel-extract-actor-btn" type="button">Extract actor + walk cycle</button>
       </div>
     </div>
   </details>

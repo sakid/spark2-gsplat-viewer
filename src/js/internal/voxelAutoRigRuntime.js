@@ -247,8 +247,8 @@ export class VoxelAutoRigRuntime {
   buildBones() {
     if (!this.voxelData) return;
     this.bones[0]?.removeFromParent?.();
-    const keys = this.voxelData.indexToKey;
-    if (!Array.isArray(keys) || keys.length === 0) {
+    const keys = Array.from(this.voxelData.occupiedKeys ?? []);
+    if (!keys.length) {
       throw new Error('Voxel auto-rig cannot build bones without voxel keys.');
     }
 

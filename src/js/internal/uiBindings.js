@@ -96,6 +96,13 @@ export function bindUi(eventBus, root = document) {
   const regenerateVoxelRig = byId('regenerate-voxel-rig-btn', root);
   const exportVoxelGlb = byId('export-voxel-glb-btn', root);
   const voxelEditMode = byId('voxel-edit-mode', root);
+  const voxelEditControls = byId('voxel-edit-controls', root);
+  const voxelSelectionCount = byId('voxel-selection-count', root);
+  const voxelDeleteBtn = byId('voxel-delete-btn', root);
+  const voxelUndoBtn = byId('voxel-undo-btn', root);
+  const voxelSelectConnectedBtn = byId('voxel-select-connected-btn', root);
+  const voxelInvertSelectionBtn = byId('voxel-invert-selection-btn', root);
+  const voxelExtractActorBtn = byId('voxel-extract-actor-btn', root);
   const viewMode = byId('view-mode', root);
   const showProxy = byId('show-proxy-mesh', root);
   const showProxyBones = byId('show-proxy-bones', root);
@@ -157,6 +164,8 @@ export function bindUi(eventBus, root = document) {
   const advancedSections = Array.from(root.querySelectorAll?.('.advanced-only') ?? []);
 
   let proxyKind = 'none';
+  let currentMode = 'view';
+  let voxelSelectionState = { selectedCount: 0, canUndo: false };
   const initialLoadedText = String(splatLoadedName?.textContent ?? '')
     .replace(/^Loaded:\s*/i, '')
     .trim()
@@ -169,6 +178,7 @@ export function bindUi(eventBus, root = document) {
   const hasProxy = () => proxyKind === 'external' || proxyKind === 'voxel';
   const hasSplatSelection = () => Boolean(splatInput?.files?.[0]);
   const setInteractionModeLabel = (mode) => {
+    currentMode = mode || 'view';
     if (!interactionMode) return;
     const label =
       mode === 'voxel-edit' ? 'voxel edit'
@@ -263,6 +273,15 @@ export function bindUi(eventBus, root = document) {
     }
   };
 
+  const applyVoxelSelectionState = (state = {}) => {
+    voxelSelectionState = {
+      selectedCount: Math.max(0, Math.floor(asFiniteNumber(state?.selectedCount, 0))),
+      canUndo: Boolean(state?.canUndo)
+    };
+    if (voxelSelectionCount) voxelSelectionCount.textContent = `${voxelSelectionState.selectedCount} selected`;
+    syncViewingInputs();
+  };
+
   const syncWorkflowSummary = () => {
     if (!workflowSummary) return;
     if (proxyKind === 'voxel') {
@@ -348,6 +367,15 @@ export function bindUi(eventBus, root = document) {
         setInteractionModeLabel('view');
       }
     }
+    const voxelEditActive = currentMode === 'voxel-edit' && proxyKind === 'voxel';
+    if (voxelEditControls && voxelEditControls.style) {
+      voxelEditControls.style.display = voxelEditActive ? '' : 'none';
+    }
+    if (voxelDeleteBtn) voxelDeleteBtn.disabled = !voxelEditActive || voxelSelectionState.selectedCount < 1;
+    if (voxelUndoBtn) voxelUndoBtn.disabled = !voxelEditActive || !voxelSelectionState.canUndo;
+    if (voxelSelectConnectedBtn) voxelSelectConnectedBtn.disabled = !voxelEditActive || voxelSelectionState.selectedCount !== 1;
+    if (voxelInvertSelectionBtn) voxelInvertSelectionBtn.disabled = !voxelEditActive;
+    if (voxelExtractActorBtn) voxelExtractActorBtn.disabled = !voxelEditActive || voxelSelectionState.selectedCount < 1;
     syncWorkflowSummary();
   };
 
@@ -388,16 +416,21 @@ export function bindUi(eventBus, root = document) {
     applyGameplayLevelState(state ?? {});
     syncViewingInputs();
   });
+  const unsubscribeVoxelSelectionState = eventBus.on('voxel:selectionChanged', (state) => {
+    applyVoxelSelectionState(state ?? {});
+  });
   disposers.push(unsubscribeProxyKind);
   disposers.push(unsubscribeSplatLoaded);
   disposers.push(unsubscribeSheepAlignState);
   disposers.push(unsubscribeSheepCropState);
   disposers.push(unsubscribeHistoryState);
   disposers.push(unsubscribeGameplayLevelState);
+  disposers.push(unsubscribeVoxelSelectionState);
   eventBus.emit('environment:requestProxyKind');
   eventBus.emit('environment:requestSheepAlignState');
   eventBus.emit('environment:requestSheepCropState');
   eventBus.emit('gameplay:requestLevelState');
+  eventBus.emit('voxel:requestState');
 
   on(loadButton, 'click', () => {
     const file = splatInput?.files?.[0] ?? null;
@@ -441,6 +474,11 @@ export function bindUi(eventBus, root = document) {
   on(generateVoxel, 'click', () => eventBus.emit('environment:generateVoxel'), disposers);
   on(regenerateVoxelRig, 'click', () => eventBus.emit('environment:regenerateVoxelRig'), disposers);
   on(exportVoxelGlb, 'click', () => eventBus.emit('environment:exportVoxelGlb'), disposers);
+  on(voxelDeleteBtn, 'click', () => eventBus.emit('voxel:deleteSelectedRequested'), disposers);
+  on(voxelUndoBtn, 'click', () => eventBus.emit('voxel:undoRequested'), disposers);
+  on(voxelSelectConnectedBtn, 'click', () => eventBus.emit('voxel:selectConnectedRequested'), disposers);
+  on(voxelInvertSelectionBtn, 'click', () => eventBus.emit('voxel:invertSelectionRequested'), disposers);
+  on(voxelExtractActorBtn, 'click', () => eventBus.emit('voxel:extractActorRequested'), disposers);
   on(sheepGizmoTarget, 'change', () => eventBus.emit('environment:sheepGizmoTarget', sheepGizmoTarget?.value ?? 'align'), disposers);
   on(sheepGizmoMode, 'change', () => eventBus.emit('environment:sheepGizmoMode', sheepGizmoMode?.value ?? 'translate'), disposers);
   on(sheepAlignApply, 'click', emitSheepAlign, disposers);
@@ -536,6 +574,7 @@ export function bindUi(eventBus, root = document) {
   if (objectEditMode?.checked) {
     eventBus.emit('editor:objectEditMode', true);
   }
+  applyVoxelSelectionState({ selectedCount: 0, canUndo: false });
   applyHistoryState({ canUndo: false, canRedo: false });
   emitViewingState();
   eventBus.emit('controls:collision', collisionEnabled ? Boolean(collisionEnabled.checked) : false);

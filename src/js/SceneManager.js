@@ -7,6 +7,7 @@ import { bindUi } from './internal/uiBindings';
 import { EditorCommandHistory } from './internal/editorCommandHistory';
 import { applySparkCovOnlyPatch } from './internal/patchSparkCovOnly';
 import { applySelectionClick, pickSelectionObject } from './internal/selectionPicking';
+import { loadSplatFromFile } from './internal/splatLoaders';
 import { GeneralLights } from './sceneSubjects/GeneralLights';
 import { CameraControls } from './sceneSubjects/CameraControls';
 import { RenderQuality } from './sceneSubjects/RenderQuality';
@@ -14,8 +15,11 @@ import { EnvironmentSplat } from './sceneSubjects/EnvironmentSplat';
 import { ButterflySplat } from './sceneSubjects/ButterflySplat';
 import { DynoEffectSplat } from './sceneSubjects/DynoEffectSplat';
 import { Gameplay } from './sceneSubjects/Gameplay';
+import { VoxelSplatActor } from './sceneSubjects/VoxelSplatActor';
 import { stampPrim } from '../ui/prim-utils.js';
 import { createSceneFile, listSceneSlotNames } from './internal/sceneStateBridge.js';
+import { VoxelEditState } from '../viewer/voxelEditState';
+import { mergeVoxelKeysToBoxes } from '../viewer/voxelMaskMerge';
 
 function flattenMapValues(map, target) {
   target.length = 0;
@@ -124,6 +128,11 @@ export class SceneManager {
     this.selectionPointer = new THREE.Vector2();
     this.pointerDownSelection = null;
     this.selectionOutline = null;
+    this.context = null;
+    this.lastImportedSplatFile = null;
+    this.worldMaskByMesh = new Map();
+    this.voxelEditState = new VoxelEditState();
+    this.voxelEditStateDispose = this.voxelEditState.onChange(() => this.handleVoxelEditStateChanged());
     this.snapSettings = {
       enabled: true,
       space: 'world',
@@ -223,6 +232,7 @@ export class SceneManager {
       },
       resolveCameraMovement: (from, to, options) => this.resolveCameraMovement(from, to, options)
     };
+    this.context = context;
 
     for (const entity of this.entities) {
       await entity.init(context);
@@ -245,6 +255,7 @@ export class SceneManager {
       ?? (() => this.eventBus.off?.('selectionChanged', onSelectionChanged));
 
     this.bindEditorControls();
+    this.syncVoxelEditData();
     this.applySnapSettings(this.snapSettings);
     this.commandHistory.emitChange?.();
 
@@ -350,7 +361,23 @@ export class SceneManager {
       this.interactionMode = mode || 'view';
       this.updateEditorTransformBinding();
       this.updateSelectionOutline();
+      this.emitVoxelSelectionState();
     });
+    busOn('asset:sessionImported', (payload) => {
+      if (payload?.kind === 'splat' && payload?.file) {
+        this.lastImportedSplatFile = payload.file;
+      }
+    });
+    busOn('environment:proxyKind', () => this.syncVoxelEditData());
+    busOn('environment:splatLoaded', () => this.syncVoxelEditData());
+    busOn('voxel:deleteSelectedRequested', () => this.deleteSelectedVoxels());
+    busOn('voxel:undoRequested', () => this.undoVoxelEdit());
+    busOn('voxel:invertSelectionRequested', () => this.invertVoxelSelection());
+    busOn('voxel:selectConnectedRequested', () => this.selectConnectedVoxels());
+    busOn('voxel:extractActorRequested', () => {
+      void this.extractSelectedVoxelActor();
+    });
+    busOn('voxel:requestState', () => this.emitVoxelSelectionState());
     busOn('editor:transformModeRequested', (payload) => this.handleTransformModeRequested(payload));
     busOn('editor:snapSettingsChanged', (settings) => this.applySnapSettings(settings));
     busOn('editor:undoRequested', () => this.undoEditorCommand());
@@ -368,6 +395,324 @@ export class SceneManager {
     busOn('hierarchyChanged', () => this.updateSelectionOutline());
 
     this.eventBus.emit('editor:transformModeChanged', { mode: this.editorTransformMode });
+  }
+
+  handleVoxelEditStateChanged() {
+    this.applyEnvironmentVoxelMaskFromEdits();
+    this.emitVoxelSelectionState();
+  }
+
+  emitVoxelSelectionState() {
+    const hasData = Boolean(this.voxelEditState.getVoxelData());
+    this.eventBus.emit('voxel:selectionChanged', {
+      selectedCount: hasData ? this.voxelEditState.getSelectedCount() : 0,
+      canUndo: hasData ? this.voxelEditState.canUndo() : false
+    });
+  }
+
+  syncVoxelEditData() {
+    const environment = this.findEnvironmentEntity();
+    const voxelData = environment?.proxyKind === 'voxel' ? (environment?.voxelData ?? null) : null;
+    if (this.voxelEditState.getVoxelData() !== voxelData) {
+      this.voxelEditState.setVoxelData(voxelData);
+    }
+    this.emitVoxelSelectionState();
+  }
+
+  clearManagedWorldMask(mesh) {
+    if (!mesh) return;
+    const active = this.worldMaskByMesh.get(mesh);
+    if (active && mesh.worldModifier === active.modifier) {
+      mesh.worldModifier = undefined;
+    }
+    this.worldMaskByMesh.delete(mesh);
+  }
+
+  applyManagedWorldMask(mesh, boxes) {
+    if (!mesh) return;
+    this.clearManagedWorldMask(mesh);
+    if (!Array.isArray(boxes) || boxes.length < 1) return;
+
+    const edit = new this.sparkModule.SplatEdit();
+    for (const box of boxes) {
+      if (!box || box.isEmpty?.()) continue;
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      const sdf = new this.sparkModule.SplatEditSdf({
+        type: 'BOX',
+        opacity: 0,
+        radius: Math.max(size.x, size.y, size.z) * 0.05
+      });
+      sdf.position.copy(center);
+      sdf.scale.copy(size);
+      sdf.updateMatrixWorld(true);
+      edit.addSdf(sdf);
+    }
+    const modifier = new this.sparkModule.SplatModifier(edit);
+    mesh.worldModifier = modifier;
+    this.worldMaskByMesh.set(mesh, { edit, modifier });
+  }
+
+  refreshManagedWorldMasks() {
+    for (const [mesh, active] of this.worldMaskByMesh.entries()) {
+      if (!mesh || !active?.modifier) {
+        this.worldMaskByMesh.delete(mesh);
+        continue;
+      }
+      if (mesh.worldModifier !== active.modifier) {
+        mesh.worldModifier = active.modifier;
+      }
+    }
+  }
+
+  applyEnvironmentVoxelMaskFromEdits() {
+    const environment = this.findEnvironmentEntity();
+    const voxelData = this.voxelEditState.getVoxelData();
+    if (!environment?.splatMesh || !voxelData) return;
+
+    const deletedKeys = Array.from(this.voxelEditState.getDeletedKeys());
+    const boxes = mergeVoxelKeysToBoxes(deletedKeys, voxelData.resolution, voxelData.origin);
+    this.applyManagedWorldMask(environment.splatMesh, boxes);
+  }
+
+  deleteSelectedVoxels() {
+    this.syncVoxelEditData();
+    if (!this.voxelEditState.getVoxelData()) {
+      this.setStatus('Generate a voxel proxy before deleting voxels.', 'warning');
+      return;
+    }
+    const deleted = this.voxelEditState.deleteSelected();
+    if (deleted.length < 1) {
+      this.setStatus('No voxels selected.', 'warning');
+      return;
+    }
+    this.setStatus(`Deleted ${deleted.length.toLocaleString()} voxels.`, 'info');
+  }
+
+  undoVoxelEdit() {
+    this.syncVoxelEditData();
+    if (!this.voxelEditState.getVoxelData()) {
+      this.setStatus('Generate a voxel proxy before undoing voxel edits.', 'warning');
+      return;
+    }
+    if (!this.voxelEditState.undo()) {
+      this.setStatus('No voxel edits to undo.', 'warning');
+      return;
+    }
+    this.setStatus('Voxel edit undo applied.', 'info');
+  }
+
+  invertVoxelSelection() {
+    this.syncVoxelEditData();
+    if (!this.voxelEditState.getVoxelData()) {
+      this.setStatus('Generate a voxel proxy before inverting selection.', 'warning');
+      return;
+    }
+    this.voxelEditState.invertSelection();
+  }
+
+  selectConnectedVoxels() {
+    this.syncVoxelEditData();
+    const voxelData = this.voxelEditState.getVoxelData();
+    if (!voxelData) {
+      this.setStatus('Generate a voxel proxy before selecting connected voxels.', 'warning');
+      return;
+    }
+    const selected = Array.from(this.voxelEditState.getSelected());
+    if (selected.length !== 1) {
+      this.setStatus('Select exactly one seed voxel to select connected voxels.', 'warning');
+      return;
+    }
+    this.voxelEditState.selectConnectedFrom(selected[0]);
+  }
+
+  getSelectedVoxelKeys(voxelData) {
+    const selected = this.voxelEditState.getSelected();
+    const keys = new Set();
+    for (const index of selected) {
+      const key = voxelData.indexToKey[index];
+      if (!key) continue;
+      if (!voxelData.occupiedKeys.has(key)) continue;
+      keys.add(key);
+    }
+    return keys;
+  }
+
+  buildVoxelSubsetData(voxelData, selectedKeys) {
+    const keys = Array.from(selectedKeys).filter((key) => voxelData.keyToIndex.has(key));
+    if (keys.length < 1) return null;
+
+    const sourceMesh = voxelData.mesh;
+    const sourceGeometry = sourceMesh.geometry?.clone?.() ?? sourceMesh.geometry;
+    const sourceMaterial = Array.isArray(sourceMesh.material)
+      ? sourceMesh.material.map((material) => material?.clone?.() ?? material)
+      : (sourceMesh.material?.clone?.() ?? sourceMesh.material);
+    const subsetMesh = new THREE.InstancedMesh(sourceGeometry, sourceMaterial, keys.length);
+    subsetMesh.name = 'ExtractedVoxelSubset';
+    subsetMesh.frustumCulled = false;
+    subsetMesh.renderOrder = sourceMesh.renderOrder;
+    subsetMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+
+    const keyToIndex = new Map();
+    const baseIndexToKey = [];
+    const baseIndexToColor = [];
+    const indexToKey = [];
+    const occupiedKeys = new Set();
+    const occupiedCounts = new Map();
+    const matrix = new THREE.Matrix4();
+    const color = new THREE.Color();
+
+    let cursor = 0;
+    for (const key of keys) {
+      const sourceIndex = voxelData.keyToIndex.get(key);
+      if (!Number.isInteger(sourceIndex)) continue;
+
+      sourceMesh.getMatrixAt(sourceIndex, matrix);
+      subsetMesh.setMatrixAt(cursor, matrix);
+
+      const sourceColor = voxelData.baseIndexToColor[sourceIndex] ?? color.setHex(0x00ff00);
+      subsetMesh.setColorAt(cursor, sourceColor);
+
+      keyToIndex.set(key, cursor);
+      baseIndexToKey.push(key);
+      baseIndexToColor.push(sourceColor.clone());
+      indexToKey.push(key);
+      occupiedKeys.add(key);
+      occupiedCounts.set(key, 1);
+      cursor += 1;
+    }
+
+    subsetMesh.count = cursor;
+    subsetMesh.instanceMatrix.needsUpdate = true;
+    if (subsetMesh.instanceColor) {
+      subsetMesh.instanceColor.needsUpdate = true;
+    }
+
+    return {
+      mesh: subsetMesh,
+      keyToIndex,
+      baseIndexToKey,
+      baseIndexToColor,
+      indexToKey,
+      origin: voxelData.origin.clone(),
+      resolution: voxelData.resolution,
+      occupiedKeys,
+      occupiedCounts,
+      activeCount: occupiedKeys.size
+    };
+  }
+
+  async cloneSplatForExtraction(sourceMesh) {
+    if (!sourceMesh) {
+      throw new Error('Missing source splat mesh.');
+    }
+
+    try {
+      const clone = sourceMesh.clone(true);
+      clone.name = `${sourceMesh.name || 'Splat'}::Extracted`;
+      clone.position.copy(sourceMesh.position);
+      clone.quaternion.copy(sourceMesh.quaternion);
+      clone.scale.copy(sourceMesh.scale);
+      clone.updateMatrixWorld(true);
+      return clone;
+    } catch {
+      if (!this.lastImportedSplatFile) {
+        throw new Error('Unable to clone source splat and no imported file is available for fallback reload.');
+      }
+      const mesh = await loadSplatFromFile({
+        file: this.lastImportedSplatFile,
+        scene: this.scene,
+        sparkRenderer: this.sparkRenderer,
+        sparkModule: this.sparkModule,
+        previousMesh: null,
+        setStatus: (message) => this.setStatus(message, 'info')
+      });
+      mesh.name = `${sourceMesh.name || 'Splat'}::Extracted`;
+      mesh.position.copy(sourceMesh.position);
+      mesh.quaternion.copy(sourceMesh.quaternion);
+      mesh.scale.copy(sourceMesh.scale);
+      mesh.updateMatrixWorld(true);
+      return mesh;
+    }
+  }
+
+  async extractSelectedVoxelActor() {
+    this.syncVoxelEditData();
+    const environment = this.findEnvironmentEntity();
+    const voxelData = this.voxelEditState.getVoxelData();
+    if (!environment?.splatMesh || !voxelData || environment?.proxyKind !== 'voxel') {
+      this.setStatus('Generate a voxel proxy before extracting an actor.', 'warning');
+      return;
+    }
+
+    const selectedKeys = this.getSelectedVoxelKeys(voxelData);
+    if (selectedKeys.size < 1) {
+      this.setStatus('Select voxels to extract into an actor.', 'warning');
+      return;
+    }
+
+    const nonSelectedKeys = [];
+    for (const key of voxelData.occupiedKeys) {
+      if (!selectedKeys.has(key)) nonSelectedKeys.push(key);
+    }
+
+    const subsetData = this.buildVoxelSubsetData(voxelData, selectedKeys);
+    if (!subsetData || subsetData.activeCount < 1) {
+      this.setStatus('Selected voxels could not be converted into an actor.', 'error');
+      return;
+    }
+
+    this.setStatus('Extracting voxel-selected actor...', 'info');
+
+    let extractedMesh = null;
+    try {
+      extractedMesh = await this.cloneSplatForExtraction(environment.splatMesh);
+      const extractedMaskBoxes = mergeVoxelKeysToBoxes(nonSelectedKeys, voxelData.resolution, voxelData.origin);
+      this.applyManagedWorldMask(extractedMesh, extractedMaskBoxes);
+
+      const actor = new VoxelSplatActor({
+        name: `Extracted ${environment.splatMesh.name || 'Actor'}`,
+        owner: `extract-${Date.now()}`,
+        splatMesh: extractedMesh,
+        voxelData: subsetData,
+        initialClipIndex: 1
+      });
+      await actor.init(this.context);
+      this.entities.push(actor);
+
+      const environmentHiddenKeys = new Set([
+        ...Array.from(this.voxelEditState.getDeletedKeys()),
+        ...Array.from(selectedKeys)
+      ]);
+      const environmentMaskBoxes = mergeVoxelKeysToBoxes(
+        environmentHiddenKeys,
+        voxelData.resolution,
+        voxelData.origin
+      );
+      this.applyManagedWorldMask(environment.splatMesh, environmentMaskBoxes);
+
+      environment.removeProxy?.();
+      this.syncVoxelEditData();
+
+      this.eventBus.emit('hierarchyChanged');
+      this.eventBus.emit('environment:voxelEditMode', false);
+      this.eventBus.emit('editor:objectEditMode', true);
+      this.eventBus.emit('controls:mode', 'object-edit');
+      this.eventBus.emit('selectionChanged', {
+        target: 'object',
+        uuids: actor.root?.uuid ? [actor.root.uuid] : [],
+        object: actor.root ?? null
+      });
+
+      this.setStatus(
+        `Extracted actor created (${subsetData.activeCount.toLocaleString()} voxels) with procedural walk cycle.`,
+        'success'
+      );
+    } catch (error) {
+      extractedMesh?.removeFromParent?.();
+      extractedMesh?.dispose?.();
+      this.setStatus(`Actor extraction failed: ${error instanceof Error ? error.message : String(error)}`, 'error');
+    }
   }
 
   applySnapSettings(settings) {
@@ -522,6 +867,34 @@ export class SceneManager {
     const y = -(((Number(event?.clientY ?? 0) - rect.top) / height) * 2 - 1);
     this.selectionPointer.set(x, y);
     this.selectionRaycaster.setFromCamera(this.selectionPointer, camera);
+
+    if (this.interactionMode === 'voxel-edit') {
+      this.syncVoxelEditData();
+      const voxelData = this.voxelEditState.getVoxelData();
+      const voxelMesh = voxelData?.mesh;
+      if (!voxelMesh) return;
+
+      const intersections = this.selectionRaycaster.intersectObject(voxelMesh, true);
+      const hit = intersections.find((entry) => Number.isInteger(entry?.instanceId)) ?? null;
+      const additive = Boolean(event?.metaKey || event?.ctrlKey);
+      const extend = Boolean(event?.shiftKey);
+
+      if (!hit) {
+        if (!additive && !extend) this.voxelEditState.clearSelection();
+        return;
+      }
+
+      const instanceIndex = Number(hit.instanceId);
+      if (additive) {
+        this.voxelEditState.toggleSelect(instanceIndex);
+      } else if (extend) {
+        this.voxelEditState.addSelect(instanceIndex);
+      } else {
+        this.voxelEditState.selectOnly(instanceIndex);
+      }
+      return;
+    }
+
     const intersections = this.selectionRaycaster.intersectObjects(scene.children, true);
     const selected = pickSelectionObject(intersections, scene, (object) => this.isIgnoredPickObject(object));
 
@@ -544,6 +917,7 @@ export class SceneManager {
     if (
       !selected
       || this.interactionMode === 'gameplay'
+      || this.interactionMode === 'voxel-edit'
       || selected === this.scene
       || selected === this.sparkRenderer
       || selected.isCamera
@@ -1243,6 +1617,7 @@ export class SceneManager {
 
   update(delta) {
     for (const entity of this.entities) entity.update(delta);
+    this.refreshManagedWorldMasks();
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -1253,6 +1628,13 @@ export class SceneManager {
   }
 
   dispose() {
+    for (const [mesh] of this.worldMaskByMesh.entries()) {
+      this.clearManagedWorldMask(mesh);
+    }
+    this.worldMaskByMesh.clear();
+    this.voxelEditStateDispose?.();
+    this.voxelEditStateDispose = null;
+    this.voxelEditState.setVoxelData(null);
     for (const entity of [...this.entities].reverse()) entity.dispose();
     this.selectionDispose?.();
     for (const dispose of this.editorDisposers.splice(0)) dispose();
@@ -1273,6 +1655,7 @@ export class SceneManager {
     this.sparkRenderer?.dispose?.();
     this.renderer?.dispose();
     this.renderer?.domElement?.remove?.();
+    this.context = null;
     this.eventBus.clear?.();
   }
 }
