@@ -14,3 +14,11 @@ Original prompt: Test and see if the voxel mesh is staying alligned with the spl
 - Fix: added SceneManager-level view-mode propagation to extracted actors and actor API `setProxyVisible()` to hide proxy mesh (and bones) in splats-only mode.
 - Added unit test `tests/voxelSplatActor.test.ts` for actor proxy visibility toggling.
 - Verified with scripted runtime check: actor voxel proxy visible in full mode, hidden in splats-only, visible again after returning to full.
+- Follow-up fix for user report: extracted actor voxel proxies were not honoring `show-proxy-mesh` toggle.
+- Updated SceneManager to track `showProxyRequested` from `environment:showProxy` and apply it together with view mode when deciding extracted actor proxy visibility.
+- Added `tests/sceneManagerViewMode.test.ts` to cover splats-only + show-proxy gating for extracted actors.
+- Verified via runtime scripts:
+  - show-proxy ON => extracted actor voxel mesh visible
+  - show-proxy OFF => extracted actor voxel mesh hidden
+  - splats-only => extracted actor voxel mesh hidden
+  - returning to full with show-proxy ON => extracted actor voxel mesh visible again

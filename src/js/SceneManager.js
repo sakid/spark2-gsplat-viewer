@@ -141,6 +141,7 @@ export class SceneManager {
     this.transformDragging = false;
     this.editorTransformMode = 'translate';
     this.viewMode = 'full';
+    this.showProxyRequested = true;
     this.selectionRaycaster = new THREE.Raycaster();
     this.selectionPointer = new THREE.Vector2();
     this.pointerDownSelection = null;
@@ -402,6 +403,10 @@ export class SceneManager {
       this.viewMode = mode === 'splats-only' ? 'splats-only' : 'full';
       this.applySceneViewMode();
     });
+    busOn('environment:showProxy', (enabled) => {
+      this.showProxyRequested = Boolean(enabled);
+      this.applySceneViewMode();
+    });
     busOn('voxel:requestState', () => this.emitVoxelSelectionState());
     busOn('editor:transformModeRequested', (payload) => this.handleTransformModeRequested(payload));
     busOn('editor:snapSettingsChanged', (settings) => this.applySnapSettings(settings));
@@ -494,7 +499,7 @@ export class SceneManager {
   }
 
   applySceneViewMode() {
-    const showVoxelProxies = this.viewMode !== 'splats-only';
+    const showVoxelProxies = this.viewMode !== 'splats-only' && this.showProxyRequested;
     for (const entity of this.entities) {
       if (!(entity instanceof VoxelSplatActor)) continue;
       entity.setProxyVisible(showVoxelProxies);
@@ -799,7 +804,7 @@ export class SceneManager {
       });
       await actor.init(this.context);
       this.entities.push(actor);
-      actor.setProxyVisible(this.viewMode !== 'splats-only');
+      actor.setProxyVisible(this.viewMode !== 'splats-only' && this.showProxyRequested);
 
       const environmentHiddenKeys = new Set([
         ...Array.from(this.voxelEditState.getDeletedKeys()),
