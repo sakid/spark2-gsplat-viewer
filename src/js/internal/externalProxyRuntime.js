@@ -127,7 +127,18 @@ export class ExternalProxyRuntime {
     if (!this.container) return;
     if (this.asset?.root) this.asset.root.visible = this.meshVisible;
     this.asset?.setDebugVisual?.(this.meshVisible);
-    this.container.visible = this.meshVisible || this.bonesVisible;
+    let hasAttachedSplat = false;
+    if (this.deformTarget) {
+      let node = this.deformTarget;
+      while (node) {
+        if (node === this.container) {
+          hasAttachedSplat = true;
+          break;
+        }
+        node = node.parent ?? null;
+      }
+    }
+    this.container.visible = hasAttachedSplat || this.meshVisible || this.bonesVisible;
   }
 
   setVisible(enabled) {
