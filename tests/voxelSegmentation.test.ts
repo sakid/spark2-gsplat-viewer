@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { describe, expect, test } from 'vitest';
 import {
   autoSelectPrimaryActorVoxelIndices,
+  expandSelectedVoxelKeysForExtraction,
   findLargestConnectedVoxelSeedIndex
 } from '../src/js/internal/voxelSegmentation';
 
@@ -103,5 +104,45 @@ describe('voxelSegmentation', () => {
     expect(selected.strategy).toBe('largest-connected');
     expect(selected.selectedCount).toBe(12);
     expect(selected.selectedKeys).toContain('-4,0,0');
+  });
+
+  test('expansion keeps low-band growth anchored to vertical support', () => {
+    const data = createSyntheticVoxelData([
+      { key: '0,0,0', color: [0.8, 0.6, 0.5] },
+      { key: '0,1,0', color: [0.8, 0.6, 0.5] },
+      { key: '0,2,0', color: [0.8, 0.6, 0.5] },
+      { key: '1,0,0', color: [0.8, 0.6, 0.5] }, // has support above
+      { key: '1,1,0', color: [0.8, 0.6, 0.5] },
+      { key: '-1,0,0', color: [0.8, 0.6, 0.5] } // unsupported floor noise
+    ]);
+
+    const expanded = expandSelectedVoxelKeysForExtraction(data, new Set(['0,0,0', '0,1,0', '0,2,0']), {
+      radius: 1,
+      maxScale: 4,
+      colorThreshold: 0.5,
+      lowBandFraction: 0.4
+    });
+
+    expect(expanded.has('1,0,0')).toBe(true);
+    expect(expanded.has('-1,0,0')).toBe(false);
+  });
+
+  test('expansion respects color threshold when adding neighbors', () => {
+    const data = createSyntheticVoxelData([
+      { key: '0,0,0', color: [0.9, 0.3, 0.3] },
+      { key: '0,1,0', color: [0.9, 0.3, 0.3] },
+      { key: '1,0,0', color: [0.1, 0.2, 0.9] },
+      { key: '1,1,0', color: [0.1, 0.2, 0.9] }
+    ]);
+
+    const expanded = expandSelectedVoxelKeysForExtraction(data, new Set(['0,0,0', '0,1,0']), {
+      radius: 1,
+      maxScale: 3,
+      colorThreshold: 0.05,
+      lowBandFraction: 0.4
+    });
+
+    expect(expanded.has('1,0,0')).toBe(false);
+    expect(expanded.has('1,1,0')).toBe(false);
   });
 });

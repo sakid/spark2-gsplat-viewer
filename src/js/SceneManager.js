@@ -7,7 +7,8 @@ import { bindUi } from './internal/uiBindings';
 import { EditorCommandHistory } from './internal/editorCommandHistory';
 import { applySparkCovOnlyPatch } from './internal/patchSparkCovOnly';
 import { applySelectionClick, pickSelectionObject } from './internal/selectionPicking';
-import { loadSplatFromFile } from './internal/splatLoaders';
+import { loadSplatFromFile, loadSplatFromUrl } from './internal/splatLoaders';
+import { DEFAULT_BOOT_SPLAT_URL, FALLBACK_SPLAT_URL } from './internal/startupAssets';
 import { GeneralLights } from './sceneSubjects/GeneralLights';
 import { CameraControls } from './sceneSubjects/CameraControls';
 import { RenderQuality } from './sceneSubjects/RenderQuality';
@@ -22,6 +23,7 @@ import { VoxelEditState } from '../viewer/voxelEditState';
 import { mergeVoxelKeysToBoxes } from '../viewer/voxelMaskMerge';
 import {
   autoSelectPrimaryActorVoxelIndices,
+  expandSelectedVoxelKeysForExtraction,
   findLargestConnectedVoxelSeedIndex as findLargestConnectedSeedIndex
 } from './internal/voxelSegmentation';
 
@@ -664,52 +666,10 @@ export class SceneManager {
   }
 
   expandSelectedVoxelKeys(voxelData, selectedKeys, { radius = 1, maxScale = 2.5 } = {}) {
-    if (!voxelData?.occupiedKeys || !selectedKeys?.size) {
-      return new Set();
-    }
-
-    const occupied = voxelData.occupiedKeys;
-    const parseKey = (key) => {
-      const [xRaw, yRaw, zRaw] = String(key).split(',');
-      return [Number(xRaw) || 0, Number(yRaw) || 0, Number(zRaw) || 0];
-    };
-    const hashKey = (x, y, z) => `${x},${y},${z}`;
-    const neighborKeys = (x, y, z) => ([
-      hashKey(x + 1, y, z),
-      hashKey(x - 1, y, z),
-      hashKey(x, y + 1, z),
-      hashKey(x, y - 1, z),
-      hashKey(x, y, z + 1),
-      hashKey(x, y, z - 1)
-    ]);
-
-    const steps = Math.max(0, Math.floor(Number(radius) || 0));
-    if (steps < 1) return new Set(selectedKeys);
-
-    const expanded = new Set(selectedKeys);
-    const maxCount = Math.max(
-      expanded.size,
-      Math.floor(expanded.size * Math.max(1, Number(maxScale) || 1))
-    );
-
-    let frontier = Array.from(selectedKeys);
-    for (let step = 0; step < steps; step += 1) {
-      if (!frontier.length || expanded.size >= maxCount) break;
-      const next = [];
-      for (const key of frontier) {
-        const [x, y, z] = parseKey(key);
-        for (const neighbor of neighborKeys(x, y, z)) {
-          if (!occupied.has(neighbor) || expanded.has(neighbor)) continue;
-          expanded.add(neighbor);
-          next.push(neighbor);
-          if (expanded.size >= maxCount) break;
-        }
-        if (expanded.size >= maxCount) break;
-      }
-      frontier = next;
-    }
-
-    return expanded;
+    return expandSelectedVoxelKeysForExtraction(voxelData, selectedKeys, {
+      radius,
+      maxScale
+    });
   }
 
   buildVoxelSubsetData(voxelData, selectedKeys) {
@@ -776,38 +736,146 @@ export class SceneManager {
     };
   }
 
-  async cloneSplatForExtraction(sourceMesh) {
-    if (!sourceMesh) {
-      throw new Error('Missing source splat mesh.');
-    }
-
+  isRenderableSplatMesh(mesh) {
+    if (!mesh) return false;
+    const count = Number(mesh.numSplats);
+    if (Number.isFinite(count) && count > 0) return true;
+    if (typeof mesh.getBoundingBox !== 'function') return false;
     try {
-      const clone = sourceMesh.clone(true);
-      clone.name = `${sourceMesh.name || 'Splat'}::Extracted`;
-      clone.position.copy(sourceMesh.position);
-      clone.quaternion.copy(sourceMesh.quaternion);
-      clone.scale.copy(sourceMesh.scale);
-      clone.updateMatrixWorld(true);
-      return clone;
+      const bounds = mesh.getBoundingBox(false);
+      return Boolean(bounds && !bounds.isEmpty?.());
     } catch {
-      if (!this.lastImportedSplatFile) {
-        throw new Error('Unable to clone source splat and no imported file is available for fallback reload.');
-      }
-      const mesh = await loadSplatFromFile({
-        file: this.lastImportedSplatFile,
+      return false;
+    }
+  }
+
+  configureExtractedSplatMesh(mesh, sourceMesh) {
+    mesh.name = `${sourceMesh.name || 'Splat'}::Extracted`;
+    mesh.position.copy(sourceMesh.position);
+    mesh.quaternion.copy(sourceMesh.quaternion);
+    mesh.scale.copy(sourceMesh.scale);
+    mesh.updateMatrixWorld(true);
+    return mesh;
+  }
+
+  buildExtractionSourceQueue(source) {
+    const queue = [];
+    const pushUrl = (url) => {
+      if (typeof url !== 'string' || !url) return;
+      if (queue.some((item) => item.type === 'url' && item.url === url)) return;
+      queue.push({ type: 'url', url });
+    };
+    const pushFile = (file) => {
+      if (!file || typeof file.name !== 'string') return;
+      if (queue.some((item) => item.type === 'file' && item.file === file)) return;
+      queue.push({ type: 'file', file });
+    };
+
+    if (source?.kind === 'file') pushFile(source.file);
+    if (source?.kind === 'url') pushUrl(source.url);
+    if (source?.file) pushFile(source.file);
+    if (source?.url) pushUrl(source.url);
+    pushFile(this.lastImportedSplatFile);
+    pushUrl(DEFAULT_BOOT_SPLAT_URL);
+    pushUrl(FALLBACK_SPLAT_URL);
+    return queue;
+  }
+
+  async duplicateSplatMeshFromSourceData(sourceMesh) {
+    if (!sourceMesh || !this.sparkModule?.SplatMesh) return null;
+    if (!sourceMesh.splats && !sourceMesh.packedSplats && !sourceMesh.extSplats) return null;
+
+    const mesh = new this.sparkModule.SplatMesh({
+      splats: sourceMesh.splats,
+      packedSplats: sourceMesh.packedSplats,
+      extSplats: sourceMesh.extSplats,
+      covSplats: sourceMesh.covSplats === true,
+      editable: sourceMesh.editable,
+      raycastable: sourceMesh.raycastable,
+      lod: true,
+      nonLod: true,
+      maxSh: Number(sourceMesh.maxSh) || 3
+    });
+    if (mesh.initialized) {
+      await mesh.initialized;
+    }
+    return mesh;
+  }
+
+  async reloadSplatFromSource(source) {
+    if (!source) return null;
+    if (source.type === 'file') {
+      return loadSplatFromFile({
+        file: source.file,
         scene: this.scene,
         sparkRenderer: this.sparkRenderer,
         sparkModule: this.sparkModule,
         previousMesh: null,
         setStatus: (message) => this.setStatus(message, 'info')
       });
-      mesh.name = `${sourceMesh.name || 'Splat'}::Extracted`;
-      mesh.position.copy(sourceMesh.position);
-      mesh.quaternion.copy(sourceMesh.quaternion);
-      mesh.scale.copy(sourceMesh.scale);
-      mesh.updateMatrixWorld(true);
-      return mesh;
     }
+    if (source.type === 'url') {
+      return loadSplatFromUrl({
+        url: source.url,
+        scene: this.scene,
+        sparkModule: this.sparkModule,
+        previousMesh: null
+      });
+    }
+    return null;
+  }
+
+  async cloneSplatForExtraction(sourceMesh, source = null) {
+    if (!sourceMesh) {
+      throw new Error('Missing source splat mesh.');
+    }
+
+    let clone = null;
+    try {
+      clone = sourceMesh.clone(true);
+      this.configureExtractedSplatMesh(clone, sourceMesh);
+      if (this.isRenderableSplatMesh(clone)) {
+        return clone;
+      }
+      clone.removeFromParent?.();
+      clone.dispose?.();
+      this.setStatus('Splat clone returned empty data; reloading source for extraction.', 'info');
+    } catch {
+      clone?.removeFromParent?.();
+      clone?.dispose?.();
+    }
+
+    try {
+      const shared = await this.duplicateSplatMeshFromSourceData(sourceMesh);
+      if (shared) {
+        this.configureExtractedSplatMesh(shared, sourceMesh);
+        if (this.isRenderableSplatMesh(shared)) {
+          return shared;
+        }
+        shared.removeFromParent?.();
+        shared.dispose?.();
+      }
+    } catch {
+      // Fall back to source reload candidates.
+    }
+
+    const queue = this.buildExtractionSourceQueue(source);
+    for (const candidate of queue) {
+      try {
+        const mesh = await this.reloadSplatFromSource(candidate);
+        if (!mesh) continue;
+        this.configureExtractedSplatMesh(mesh, sourceMesh);
+        if (this.isRenderableSplatMesh(mesh)) {
+          return mesh;
+        }
+        mesh.removeFromParent?.();
+        mesh.dispose?.();
+      } catch {
+        // Try the next source candidate.
+      }
+    }
+
+    throw new Error('Unable to clone source splat and no valid source asset could be reloaded.');
   }
 
   async extractSelectedVoxelActor() {
@@ -845,7 +913,7 @@ export class SceneManager {
 
     let extractedMesh = null;
     try {
-      extractedMesh = await this.cloneSplatForExtraction(environment.splatMesh);
+      extractedMesh = await this.cloneSplatForExtraction(environment.splatMesh, environment?.splatSource ?? null);
       const extractedMaskBoxes = mergeVoxelKeysToBoxes(nonSelectedKeys, voxelData.resolution, voxelData.origin);
       this.applyManagedWorldMask(extractedMesh, extractedMaskBoxes);
 

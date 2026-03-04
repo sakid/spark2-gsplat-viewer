@@ -7,6 +7,13 @@ const DEFAULT_OPTIONS = Object.freeze({
   maxMergedComponents: 3
 });
 
+const DEFAULT_EXPANSION_OPTIONS = Object.freeze({
+  radius: 1,
+  maxScale: 2.5,
+  colorThreshold: 0.2,
+  lowBandFraction: 0.16
+});
+
 const toNumber = (value, fallback) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -327,4 +334,85 @@ export function autoSelectPrimaryActorVoxelIndices(voxelData, options = {}) {
     threshold: config.colorThreshold,
     minCount: config.minCount
   };
+}
+
+export function expandSelectedVoxelKeysForExtraction(voxelData, selectedKeys, options = {}) {
+  const occupied = voxelData?.occupiedKeys;
+  if (!occupied || occupied.size < 1 || !selectedKeys) {
+    return new Set();
+  }
+
+  const selected = new Set(Array.from(selectedKeys).filter((key) => occupied.has(key)));
+  if (selected.size < 1) {
+    return selected;
+  }
+
+  const config = {
+    radius: Math.max(0, Math.floor(toNumber(options.radius, DEFAULT_EXPANSION_OPTIONS.radius))),
+    maxScale: Math.max(1, toNumber(options.maxScale, DEFAULT_EXPANSION_OPTIONS.maxScale)),
+    colorThreshold: Math.max(0, toNumber(options.colorThreshold, DEFAULT_EXPANSION_OPTIONS.colorThreshold)),
+    lowBandFraction: Math.max(0, toNumber(options.lowBandFraction, DEFAULT_EXPANSION_OPTIONS.lowBandFraction))
+  };
+
+  if (config.radius < 1) {
+    return selected;
+  }
+
+  let minY = Number.POSITIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  for (const key of selected) {
+    const [, y] = parseKey(key);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+  }
+  const selectedHeight = Math.max(1, maxY - minY + 1);
+  const lowBandMaxY = minY + Math.max(1, Math.floor(selectedHeight * config.lowBandFraction));
+
+  const colorThresholdSq = config.colorThreshold > 0
+    ? config.colorThreshold * config.colorThreshold
+    : Number.POSITIVE_INFINITY;
+  const colorByKey = buildColorByKey(voxelData);
+
+  const expanded = new Set(selected);
+  const maxCount = Math.max(expanded.size, Math.floor(expanded.size * config.maxScale));
+  let frontier = Array.from(selected);
+
+  for (let step = 0; step < config.radius; step += 1) {
+    if (!frontier.length || expanded.size >= maxCount) break;
+    const next = [];
+    let reachedLimit = false;
+
+    for (const key of frontier) {
+      const [x, y, z] = parseKey(key);
+      const sourceColor = colorByKey.get(key) ?? null;
+      for (const neighbor of neighborsForKey(x, y, z)) {
+        if (!occupied.has(neighbor) || expanded.has(neighbor)) continue;
+
+        const [nx, ny, nz] = parseKey(neighbor);
+        if (ny <= lowBandMaxY && !occupied.has(hashKey(nx, ny + 1, nz))) {
+          continue;
+        }
+
+        if (sourceColor && Number.isFinite(colorThresholdSq)) {
+          const neighborColor = colorByKey.get(neighbor) ?? null;
+          if (neighborColor && colorDistanceSquared(sourceColor, neighborColor) > colorThresholdSq) {
+            continue;
+          }
+        }
+
+        expanded.add(neighbor);
+        next.push(neighbor);
+        if (expanded.size >= maxCount) {
+          reachedLimit = true;
+          break;
+        }
+      }
+      if (reachedLimit) break;
+    }
+
+    frontier = next;
+    if (reachedLimit) break;
+  }
+
+  return expanded;
 }

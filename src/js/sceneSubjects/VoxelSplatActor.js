@@ -73,6 +73,7 @@ export class VoxelSplatActor {
     this.externalRuntime = null;
     this.activeClipIndex = this.initialClipIndex;
     this.standardRigBoneCount = 0;
+    this.standardRigError = null;
     this.poseFitMetrics = null;
     this.root = null;
   }
@@ -85,14 +86,16 @@ export class VoxelSplatActor {
 
     try {
       await this.initStandardHumanoidRuntime(context);
+      this.standardRigError = null;
       context.setStatus(
         `Extracted actor using standard humanoid rig (${this.standardRigBoneCount} bones) and walk cycle.`,
         'success'
       );
       return;
     } catch (error) {
+      this.standardRigError = error instanceof Error ? error.message : String(error);
       context.setStatus(
-        `Standard humanoid rig unavailable; falling back to procedural voxel rig: ${error instanceof Error ? error.message : String(error)}`,
+        `Standard humanoid rig unavailable; falling back to procedural voxel rig: ${this.standardRigError}`,
         'warning'
       );
     }

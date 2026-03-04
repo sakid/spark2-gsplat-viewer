@@ -87,6 +87,7 @@ export class EnvironmentSplat {
     this.showProxyRequested = true;
     this.showProxyBonesRequested = false;
     this.viewMode = 'full';
+    this.splatSource = null;
     this.sheepAlign = {
       x: 0,
       y: 0,
@@ -988,11 +989,12 @@ export class EnvironmentSplat {
     this.updateSheepGizmoAttachment();
   }
 
-  async loadSplat(loader, loadingStatus, successStatus) {
+  async loadSplat(loader, loadingStatus, successStatus, source = null) {
     try {
       if (this.proxyKind === 'voxel') this.removeProxy();
       this.context.setStatus(loadingStatus, 'info');
       this.splatMesh = await loader();
+      this.splatSource = source ? { ...source } : null;
       this.transforms.captureSplat(this.splatMesh);
       this.updateManualAlignmentTransform();
       this.applySplatTransform();
@@ -1024,7 +1026,8 @@ export class EnvironmentSplat {
         previousMesh: this.splatMesh
       }),
       'Loading canonical environment splat...',
-      'Environment splat loaded.'
+      'Environment splat loaded.',
+      { kind: 'url', url: DEFAULT_ENVIRONMENT_SPLAT }
     );
     if (loadedCanonical) {
       setLoadedName('splat-loaded-name', `Loaded: ${assetLabelFromUrl(DEFAULT_ENVIRONMENT_SPLAT, 'default.spz')}`);
@@ -1039,7 +1042,8 @@ export class EnvironmentSplat {
         previousMesh: this.splatMesh
       }),
       'Loading fallback environment splat...',
-      'Environment splat loaded.'
+      'Environment splat loaded.',
+      { kind: 'url', url: FALLBACK_SPLAT_URL }
     );
     if (loadedFallback) {
       setLoadedName('splat-loaded-name', `Loaded: ${assetLabelFromUrl(FALLBACK_SPLAT_URL, 'fallback.spz')}`);
@@ -1060,7 +1064,8 @@ export class EnvironmentSplat {
         setStatus: (message) => this.context.setStatus(message, 'info')
       }),
       `Loading ${file.name}...`,
-      `Loaded ${file.name}.`
+      `Loaded ${file.name}.`,
+      { kind: 'file', file }
     );
   }
 
@@ -1416,6 +1421,7 @@ export class EnvironmentSplat {
     removeObject(this.context.scene, this.splatMesh);
     this.splatMesh?.dispose?.();
     this.splatMesh = null;
+    this.splatSource = null;
     this.transforms.clearSplat();
     this.sheepAlign = {
       x: 0,
