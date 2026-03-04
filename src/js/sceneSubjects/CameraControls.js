@@ -26,6 +26,7 @@ export class CameraControls {
     this.tempResolved = new THREE.Vector3();
     this.resolveOptions = { collisionEnabled: false, radius: 0.22, height: 1.35, out: this.tempResolved };
     this.selectedObject = null;
+    this.selectedFrameObject = null;
     this.preventContextMenu = (event) => {
       event.preventDefault();
     };
@@ -116,6 +117,9 @@ export class CameraControls {
 
     this.unsubscribers.push(context.eventBus.on('selectionChanged', (payload) => {
       this.selectedObject = payload?.object ?? null;
+      this.selectedFrameObject = payload?.frameObject
+        ?? payload?.object?.userData?.editorFocusTarget
+        ?? this.selectedObject;
     }));
 
     this.unsubscribers.push(context.eventBus.on('selection:focusRequested', () => {
@@ -152,11 +156,12 @@ export class CameraControls {
   }
 
   focusSelectedObject() {
-    const target = this.selectedObject;
-    if (!target) {
+    const selected = this.selectedObject;
+    if (!selected) {
       this.context?.setStatus?.('Select an object to focus.', 'warning');
       return;
     }
+    const target = this.selectedFrameObject ?? selected;
     if (target === this.camera || target?.isCamera) {
       this.context?.setStatus?.('Cannot frame active player camera.', 'warning');
       return;
@@ -173,7 +178,10 @@ export class CameraControls {
       this.orbit.update?.();
     }
 
-    this.context?.setStatus?.(`Focused ${target.name || target.type || target.uuid || 'object'}.`, 'info');
+    this.context?.setStatus?.(
+      `Focused ${selected.name || selected.type || selected.uuid || 'object'}.`,
+      'info'
+    );
     this.emitPlayerState();
   }
 

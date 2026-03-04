@@ -140,6 +140,11 @@ export class VoxelSplatActor {
       deformEnabled: true
     });
     root.name = this.name;
+    root.userData = {
+      ...(root.userData ?? {}),
+      editorSelectableRoot: true,
+      editorFocusTarget: this.splatMesh
+    };
 
     this.splatMesh.removeFromParent?.();
     root.add(this.splatMesh);
@@ -213,7 +218,8 @@ export class VoxelSplatActor {
     root.name = this.name;
     root.userData = {
       ...(root.userData ?? {}),
-      editorSelectableRoot: true
+      editorSelectableRoot: true,
+      editorFocusTarget: this.splatMesh
     };
 
     const bones = external.asset?.skinnedMeshes?.[0]?.skeleton?.bones ?? [];

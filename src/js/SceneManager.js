@@ -528,7 +528,7 @@ export class SceneManager {
       const center = box.getCenter(new THREE.Vector3());
       const size = box.getSize(new THREE.Vector3());
       const sdf = new this.sparkModule.SplatEditSdf({
-        type: 'BOX',
+        type: 'box',
         opacity: 0,
         radius: Math.max(size.x, size.y, size.z) * 0.05
       });
@@ -738,8 +738,26 @@ export class SceneManager {
 
   isRenderableSplatMesh(mesh) {
     if (!mesh) return false;
-    const count = Number(mesh.numSplats);
-    if (Number.isFinite(count) && count > 0) return true;
+    const packedCount = Number(mesh.packedSplats?.numSplats ?? 0);
+    if (Number.isFinite(packedCount) && packedCount > 0) return true;
+
+    const extCount = Number(mesh.extSplats?.numSplats ?? 0);
+    if (Number.isFinite(extCount) && extCount > 0) return true;
+
+    if (typeof mesh.forEachSplat === 'function') {
+      const stop = { stop: true };
+      let seen = 0;
+      try {
+        mesh.forEachSplat(() => {
+          seen += 1;
+          if (seen >= 1) throw stop;
+        });
+      } catch (error) {
+        if (error === stop) return true;
+      }
+      if (seen > 0) return true;
+    }
+
     if (typeof mesh.getBoundingBox !== 'function') return false;
     try {
       const bounds = mesh.getBoundingBox(false);
@@ -915,7 +933,6 @@ export class SceneManager {
     try {
       extractedMesh = await this.cloneSplatForExtraction(environment.splatMesh, environment?.splatSource ?? null);
       const extractedMaskBoxes = mergeVoxelKeysToBoxes(nonSelectedKeys, voxelData.resolution, voxelData.origin);
-      this.applyManagedWorldMask(extractedMesh, extractedMaskBoxes);
 
       const actor = new VoxelSplatActor({
         name: `Extracted ${environment.splatMesh.name || 'Actor'}`,
@@ -925,7 +942,6 @@ export class SceneManager {
         initialClipIndex: 1
       });
       await actor.init(this.context);
-      // Reapply extraction mask after runtime init, since deformer rebinding can rebuild splat internals.
       this.applyManagedWorldMask(actor.splatMesh, extractedMaskBoxes);
       this.entities.push(actor);
       actor.setProxyVisible(this.viewMode !== 'splats-only' && this.showProxyRequested);
@@ -951,7 +967,8 @@ export class SceneManager {
       this.eventBus.emit('selectionChanged', {
         target: 'object',
         uuids: actor.root?.uuid ? [actor.root.uuid] : [],
-        object: actor.root ?? null
+        object: actor.root ?? null,
+        frameObject: actor.splatMesh ?? actor.root ?? null
       });
       this.eventBus.emit('selection:focusRequested');
 
