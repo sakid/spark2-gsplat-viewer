@@ -140,6 +140,7 @@ export class SceneManager {
     this.transformDragStart = null;
     this.transformDragging = false;
     this.editorTransformMode = 'translate';
+    this.viewMode = 'full';
     this.selectionRaycaster = new THREE.Raycaster();
     this.selectionPointer = new THREE.Vector2();
     this.pointerDownSelection = null;
@@ -397,6 +398,10 @@ export class SceneManager {
     busOn('voxel:extractActorRequested', () => {
       void this.extractSelectedVoxelActor();
     });
+    busOn('environment:viewMode', (mode) => {
+      this.viewMode = mode === 'splats-only' ? 'splats-only' : 'full';
+      this.applySceneViewMode();
+    });
     busOn('voxel:requestState', () => this.emitVoxelSelectionState());
     busOn('editor:transformModeRequested', (payload) => this.handleTransformModeRequested(payload));
     busOn('editor:snapSettingsChanged', (settings) => this.applySnapSettings(settings));
@@ -486,6 +491,14 @@ export class SceneManager {
 
   findLargestConnectedVoxelSeedIndex(voxelData) {
     return findLargestConnectedSeedIndex(voxelData);
+  }
+
+  applySceneViewMode() {
+    const showVoxelProxies = this.viewMode !== 'splats-only';
+    for (const entity of this.entities) {
+      if (!(entity instanceof VoxelSplatActor)) continue;
+      entity.setProxyVisible(showVoxelProxies);
+    }
   }
 
   clearManagedWorldMask(mesh) {
@@ -786,6 +799,7 @@ export class SceneManager {
       });
       await actor.init(this.context);
       this.entities.push(actor);
+      actor.setProxyVisible(this.viewMode !== 'splats-only');
 
       const environmentHiddenKeys = new Set([
         ...Array.from(this.voxelEditState.getDeletedKeys()),

@@ -9,3 +9,8 @@ Original prompt: Test and see if the voxel mesh is staying alligned with the spl
 - Re-ran targeted tests: `tests/voxelizer.test.ts`, `tests/voxelSegmentation.test.ts`, `tests/voxelAutoRigRuntime.test.ts`, `tests/environmentTransforms.test.ts` (all passing).
 - Re-ran browser smoke `npm run test:default-actor-smoke` (passing): confirms extracted actor creation, walk-cycle clip active, and environment splat hidden after extraction.
 - Attempted strict model-upload smoke `npm run test:voxel-segmentation-smoke` with both `~/Downloads/Model.spz` and `public/assets/splats/Sean_Sheep.spz`; run stalled in headless Chromium and ended with CDP protocol timeout while polling workflow state.
+- Investigated user report: `view-mode=splats-only` appeared broken when extracted actors existed.
+- Root cause: view mode changes were only applied inside `EnvironmentSplat`; extracted `VoxelSplatActor` proxies stayed visible.
+- Fix: added SceneManager-level view-mode propagation to extracted actors and actor API `setProxyVisible()` to hide proxy mesh (and bones) in splats-only mode.
+- Added unit test `tests/voxelSplatActor.test.ts` for actor proxy visibility toggling.
+- Verified with scripted runtime check: actor voxel proxy visible in full mode, hidden in splats-only, visible again after returning to full.

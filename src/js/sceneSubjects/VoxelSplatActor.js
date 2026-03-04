@@ -56,6 +56,14 @@ export class VoxelSplatActor {
     this.voxelRuntime?.update(delta);
   }
 
+  setProxyVisible(visible) {
+    const show = Boolean(visible);
+    this.voxelRuntime?.setVisible(show);
+    if (!show) {
+      this.voxelRuntime?.setBonesVisible(false);
+    }
+  }
+
   dispose() {
     this.voxelRuntime?.dispose();
     this.voxelRuntime = null;
