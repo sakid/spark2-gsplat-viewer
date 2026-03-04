@@ -663,6 +663,55 @@ export class SceneManager {
     return keys;
   }
 
+  expandSelectedVoxelKeys(voxelData, selectedKeys, { radius = 1, maxScale = 2.5 } = {}) {
+    if (!voxelData?.occupiedKeys || !selectedKeys?.size) {
+      return new Set();
+    }
+
+    const occupied = voxelData.occupiedKeys;
+    const parseKey = (key) => {
+      const [xRaw, yRaw, zRaw] = String(key).split(',');
+      return [Number(xRaw) || 0, Number(yRaw) || 0, Number(zRaw) || 0];
+    };
+    const hashKey = (x, y, z) => `${x},${y},${z}`;
+    const neighborKeys = (x, y, z) => ([
+      hashKey(x + 1, y, z),
+      hashKey(x - 1, y, z),
+      hashKey(x, y + 1, z),
+      hashKey(x, y - 1, z),
+      hashKey(x, y, z + 1),
+      hashKey(x, y, z - 1)
+    ]);
+
+    const steps = Math.max(0, Math.floor(Number(radius) || 0));
+    if (steps < 1) return new Set(selectedKeys);
+
+    const expanded = new Set(selectedKeys);
+    const maxCount = Math.max(
+      expanded.size,
+      Math.floor(expanded.size * Math.max(1, Number(maxScale) || 1))
+    );
+
+    let frontier = Array.from(selectedKeys);
+    for (let step = 0; step < steps; step += 1) {
+      if (!frontier.length || expanded.size >= maxCount) break;
+      const next = [];
+      for (const key of frontier) {
+        const [x, y, z] = parseKey(key);
+        for (const neighbor of neighborKeys(x, y, z)) {
+          if (!occupied.has(neighbor) || expanded.has(neighbor)) continue;
+          expanded.add(neighbor);
+          next.push(neighbor);
+          if (expanded.size >= maxCount) break;
+        }
+        if (expanded.size >= maxCount) break;
+      }
+      frontier = next;
+    }
+
+    return expanded;
+  }
+
   buildVoxelSubsetData(voxelData, selectedKeys) {
     const keys = Array.from(selectedKeys).filter((key) => voxelData.keyToIndex.has(key));
     if (keys.length < 1) return null;
@@ -776,12 +825,17 @@ export class SceneManager {
       return;
     }
 
+    const extractionKeys = this.expandSelectedVoxelKeys(voxelData, selectedKeys, {
+      radius: 1,
+      maxScale: 2.5
+    });
+
     const nonSelectedKeys = [];
     for (const key of voxelData.occupiedKeys) {
-      if (!selectedKeys.has(key)) nonSelectedKeys.push(key);
+      if (!extractionKeys.has(key)) nonSelectedKeys.push(key);
     }
 
-    const subsetData = this.buildVoxelSubsetData(voxelData, selectedKeys);
+    const subsetData = this.buildVoxelSubsetData(voxelData, extractionKeys);
     if (!subsetData || subsetData.activeCount < 1) {
       this.setStatus('Selected voxels could not be converted into an actor.', 'error');
       return;
@@ -803,12 +857,14 @@ export class SceneManager {
         initialClipIndex: 1
       });
       await actor.init(this.context);
+      // Reapply extraction mask after runtime init, since deformer rebinding can rebuild splat internals.
+      this.applyManagedWorldMask(actor.splatMesh, extractedMaskBoxes);
       this.entities.push(actor);
       actor.setProxyVisible(this.viewMode !== 'splats-only' && this.showProxyRequested);
 
       const environmentHiddenKeys = new Set([
         ...Array.from(this.voxelEditState.getDeletedKeys()),
-        ...Array.from(selectedKeys)
+        ...Array.from(extractionKeys)
       ]);
       const environmentMaskBoxes = mergeVoxelKeysToBoxes(
         environmentHiddenKeys,

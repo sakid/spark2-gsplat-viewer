@@ -2,7 +2,7 @@ const DEFAULT_OPTIONS = Object.freeze({
   colorThreshold: 0.15,
   minCount: 80,
   mergeMinSlenderness: 0.6,
-  mergeScoreFraction: 0.8,
+  mergeScoreFraction: 0.55,
   mergeMaxGapScale: 1,
   maxMergedComponents: 3
 });

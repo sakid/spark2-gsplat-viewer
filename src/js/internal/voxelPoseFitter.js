@@ -8,7 +8,7 @@ const tempVectorD = new THREE.Vector3();
 const tempQuaternionA = new THREE.Quaternion();
 const tempQuaternionB = new THREE.Quaternion();
 const tempMatrixA = new THREE.Matrix4();
-const FIT_TARGET_COUNT = 18;
+const FIT_TARGET_COUNT = 17;
 
 function parseVoxelKey(key) {
   const [xRaw, yRaw, zRaw] = String(key).split(',');
@@ -368,10 +368,11 @@ function mapHumanoidBones(bones) {
 
 function applyLandmarksToBones(landmarks, bones, options = {}) {
   const stiffness = THREE.MathUtils.clamp(Number(options.stiffness) || 0.9, 0.1, 1);
+  const moveHips = Boolean(options.moveHips);
   const mapped = mapHumanoidBones(bones);
   let appliedCount = 0;
 
-  if (mapped.hips && landmarks.hipsCenter) {
+  if (moveHips && mapped.hips && landmarks.hipsCenter) {
     if (setBoneWorldPosition(mapped.hips, landmarks.hipsCenter)) {
       appliedCount += 1;
     }
@@ -448,9 +449,11 @@ export function fitHumanoidRigToVoxelData({ voxelData, bones, stiffness = 0.9 } 
     };
   }
 
-  const applied = applyLandmarksToBones(landmarks, bones, { stiffness });
+  const moveHips = false;
+  const applied = applyLandmarksToBones(landmarks, bones, { stiffness, moveHips });
   const error = computeFitError(landmarks, applied.mapped);
-  const coverage = THREE.MathUtils.clamp(applied.appliedCount / FIT_TARGET_COUNT, 0, 1);
+  const fitTargetCount = FIT_TARGET_COUNT + (moveHips ? 1 : 0);
+  const coverage = THREE.MathUtils.clamp(applied.appliedCount / fitTargetCount, 0, 1);
 
   return {
     applied: applied.appliedCount > 0,
