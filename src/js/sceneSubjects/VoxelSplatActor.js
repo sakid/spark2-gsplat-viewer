@@ -1,6 +1,7 @@
 import { VoxelAutoRigRuntime } from '../internal/voxelAutoRigRuntime';
 import { ExternalProxyRuntime } from '../internal/externalProxyRuntime';
 import { computeProxyAlignment } from '../internal/proxyAlign';
+import { fitHumanoidRigToVoxelData } from '../internal/voxelPoseFitter';
 
 const finiteNumber = (value, fallback = 0) => {
   const number = Number(value);
@@ -72,6 +73,7 @@ export class VoxelSplatActor {
     this.externalRuntime = null;
     this.activeClipIndex = this.initialClipIndex;
     this.standardRigBoneCount = 0;
+    this.poseFitMetrics = null;
     this.root = null;
   }
 
@@ -115,6 +117,7 @@ export class VoxelSplatActor {
     this.voxelRuntime = null;
     this.externalRuntime = null;
     this.standardRigBoneCount = 0;
+    this.poseFitMetrics = null;
     this.root?.removeFromParent?.();
     this.root = null;
     this.splatMesh?.dispose?.();
@@ -229,6 +232,19 @@ export class VoxelSplatActor {
       root.add(this.splatMesh);
     }
     this.splatMesh.updateMatrixWorld(true);
+
+    this.poseFitMetrics = fitHumanoidRigToVoxelData({
+      voxelData: this.voxelData,
+      bones,
+      stiffness: 0.92
+    });
+    if (this.poseFitMetrics?.applied) {
+      root.updateMatrixWorld(true);
+      context.setStatus(
+        `Pose fit applied from voxel landmarks (${this.poseFitMetrics.appliedCount} joints, ${(this.poseFitMetrics.coverage * 100).toFixed(0)}% coverage).`,
+        'success'
+      );
+    }
 
     external.setCollisionMode('off');
     external.setDeformEnabled(true, this.splatMesh);
