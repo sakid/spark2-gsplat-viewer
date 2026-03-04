@@ -22,3 +22,9 @@ Original prompt: Test and see if the voxel mesh is staying alligned with the spl
   - show-proxy OFF => extracted actor voxel mesh hidden
   - splats-only => extracted actor voxel mesh hidden
   - returning to full with show-proxy ON => extracted actor voxel mesh visible again
+- Upgraded extracted actor rigging to use an online standard humanoid source (`Xbot.glb` from three.js examples) with 67 bones and clip `walk`.
+- `VoxelSplatActor` now tries online humanoid rig + walk cycle first, aligns it to extracted splat bounds, and uses those bones for splat deformation.
+- Added fetch timeout + fallback to local `sean_proxy_animated.glb` to avoid hangs if online fetch is slow/unavailable.
+- Procedural voxel auto-rig remains as final fallback path if standard rig load fails.
+- Verification: runtime probe reported `boneCount=67`, `clipName=walk`, and animation phase advancing over time.
+- Verification: `npm run test:default-actor-smoke` still passes on new path (`clipIndex=6`, `clipName=walk`).
