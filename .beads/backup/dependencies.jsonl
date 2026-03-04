@@ -43,6 +43,7 @@
 {"created_at":"2026-03-03T01:18:57Z","created_by":"alyoshakidoguchi","depends_on_id":"SPARK2-u1u","issue_id":"SPARK2-f3f","type":"discovered-from"}
 {"created_at":"2026-03-02T17:24:47Z","created_by":"alyoshakidoguchi","depends_on_id":"SPARK2-u1u","issue_id":"SPARK2-kvy","type":"discovered-from"}
 {"created_at":"2026-03-03T11:04:39Z","created_by":"alyoshakidoguchi","depends_on_id":"SPARK2-vg5","issue_id":"SPARK2-lup","type":"discovered-from"}
+{"created_at":"2026-03-04T00:14:24Z","created_by":"alyoshakidoguchi","depends_on_id":"SPARK2-1d2","issue_id":"SPARK2-nau","type":"discovered-from"}
 {"created_at":"2026-03-02T19:33:35Z","created_by":"alyoshakidoguchi","depends_on_id":"SPARK2-am4.1","issue_id":"SPARK2-vg5","type":"blocks"}
 {"created_at":"2026-03-02T17:24:47Z","created_by":"alyoshakidoguchi","depends_on_id":"SPARK2-u1u","issue_id":"SPARK2-vg5","type":"discovered-from"}
 {"created_at":"2026-03-03T17:27:25Z","created_by":"alyoshakidoguchi","depends_on_id":"SPARK2-6xg","issue_id":"SPARK2-xns","type":"discovered-from"}
