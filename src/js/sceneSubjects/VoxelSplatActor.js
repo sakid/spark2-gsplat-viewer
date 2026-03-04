@@ -11,6 +11,7 @@ const finiteNumber = (value, fallback = 0) => {
 const STANDARD_HUMANOID_RIG_URL = 'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/Xbot.glb';
 const FALLBACK_HUMANOID_RIG_URL = '/assets/proxies/sean_proxy_animated.glb';
 const STANDARD_RIG_FETCH_TIMEOUT_MS = 15000;
+const DEFAULT_POSE_MODE = 'walk';
 let standardHumanoidRigFilePromise = null;
 
 function selectWalkClipIndex(clipNames, fallback = 0) {
@@ -18,6 +19,10 @@ function selectWalkClipIndex(clipNames, fallback = 0) {
   const walkIndex = names.findIndex((name) => /walk/i.test(String(name)));
   if (walkIndex >= 0) return walkIndex;
   return Math.max(0, Math.min(names.length - 1, Math.floor(finiteNumber(fallback, 0))));
+}
+
+function normalizePoseMode(mode) {
+  return mode === 't-pose' ? 't-pose' : DEFAULT_POSE_MODE;
 }
 
 async function getStandardHumanoidRigFile() {
@@ -61,7 +66,8 @@ export class VoxelSplatActor {
     owner,
     splatMesh,
     voxelData,
-    initialClipIndex = 1
+    initialClipIndex = 1,
+    initialPoseMode = DEFAULT_POSE_MODE
   } = {}) {
     this.name = name;
     this.owner = owner || `extracted-${Date.now()}`;
@@ -76,6 +82,9 @@ export class VoxelSplatActor {
     this.standardRigError = null;
     this.poseFitMetrics = null;
     this.root = null;
+    this.walkSpeed = 1.0;
+    this.poseMode = normalizePoseMode(initialPoseMode);
+    this.walkStateBeforeTPose = null;
   }
 
   async init(context) {
@@ -121,11 +130,82 @@ export class VoxelSplatActor {
     this.externalRuntime = null;
     this.standardRigBoneCount = 0;
     this.poseFitMetrics = null;
+    this.walkStateBeforeTPose = null;
     this.root?.removeFromParent?.();
     this.root = null;
     this.splatMesh?.dispose?.();
     this.splatMesh = null;
     this.voxelData = null;
+  }
+
+  setPoseMode(mode = DEFAULT_POSE_MODE) {
+    const nextMode = normalizePoseMode(mode);
+    this.poseMode = nextMode;
+
+    if (this.externalRuntime) {
+      if (nextMode === 't-pose') this.applyExternalTPose();
+      else this.applyExternalWalkPose();
+      return nextMode;
+    }
+
+    if (!this.voxelRuntime) {
+      return nextMode;
+    }
+
+    if (nextMode === 't-pose') {
+      this.voxelRuntime.playClip?.(0);
+      this.voxelRuntime.setSpeed?.(0);
+      this.voxelRuntime.setPlaying?.(false);
+      this.voxelRuntime.update?.(0);
+      return nextMode;
+    }
+
+    const clipNames = Array.isArray(this.voxelRuntime.clipNames) ? this.voxelRuntime.clipNames : [];
+    const clipIndex = clipNames.length > 0
+      ? Math.max(0, Math.min(clipNames.length - 1, Math.floor(finiteNumber(this.activeClipIndex, this.initialClipIndex))))
+      : 0;
+    this.activeClipIndex = clipIndex;
+    this.voxelRuntime.setSpeed?.(Math.max(0.05, finiteNumber(this.walkSpeed, 1)));
+    this.voxelRuntime.playClip?.(clipIndex);
+    this.voxelRuntime.setPlaying?.(true);
+    this.voxelRuntime.update?.(0);
+    return nextMode;
+  }
+
+  applyExternalTPose() {
+    const external = this.externalRuntime;
+    if (!external) return;
+
+    this.walkStateBeforeTPose = {
+      clipIndex: this.activeClipIndex,
+      speed: Math.max(0.05, finiteNumber(external.animator?.speed, this.walkSpeed)),
+      playing: Boolean(external.animator?.playing)
+    };
+    external.animator?.setPlaying(false);
+    external.animator?.setSpeed(0);
+    const skinnedMeshes = Array.isArray(external.asset?.skinnedMeshes) ? external.asset.skinnedMeshes : [];
+    for (const skinned of skinnedMeshes) {
+      skinned?.skeleton?.pose?.();
+    }
+    external.update?.(0);
+  }
+
+  applyExternalWalkPose() {
+    const external = this.externalRuntime;
+    if (!external) return;
+
+    const clipNames = Array.isArray(external.clipNames) ? external.clipNames : [];
+    const fallbackClip = selectWalkClipIndex(clipNames, this.activeClipIndex);
+    const clipIndex = Math.max(
+      0,
+      Math.min(clipNames.length - 1, Math.floor(finiteNumber(this.walkStateBeforeTPose?.clipIndex, fallbackClip)))
+    );
+    const speed = Math.max(0.05, finiteNumber(this.walkStateBeforeTPose?.speed, this.walkSpeed));
+    this.activeClipIndex = clipIndex;
+    external.animator?.setSpeed(speed);
+    external.animator?.playClip(clipIndex);
+    external.animator?.setPlaying(Boolean(this.walkStateBeforeTPose?.playing ?? true));
+    external.update?.(0);
   }
 
   initProceduralVoxelRuntime(context) {
@@ -150,10 +230,12 @@ export class VoxelSplatActor {
     root.add(this.splatMesh);
     context.scene.add(root);
 
-    this.voxelRuntime.setSpeed(1.1);
+    this.walkSpeed = 1.1;
+    this.voxelRuntime.setSpeed(this.walkSpeed);
     this.voxelRuntime.playClip(this.initialClipIndex);
     this.voxelRuntime.setPlaying(true);
     this.root = root;
+    this.setPoseMode(this.poseMode);
   }
 
   findAlignmentAnchorNode(bones) {
@@ -205,6 +287,7 @@ export class VoxelSplatActor {
           playing: Boolean(external.animator.playing),
           speed: Number(external.animator.speed) || 0,
           phase,
+          poseMode: actor.poseMode,
           walkSettings: {}
         };
       }
@@ -261,7 +344,8 @@ export class VoxelSplatActor {
 
     const clipNames = Array.isArray(external.clipNames) ? external.clipNames : [];
     this.activeClipIndex = selectWalkClipIndex(clipNames, this.initialClipIndex);
-    external.animator.setSpeed(1.0);
+    this.walkSpeed = 1.0;
+    external.animator.setSpeed(this.walkSpeed);
     external.animator.playClip(this.activeClipIndex);
     external.animator.setPlaying(true);
 
@@ -270,5 +354,6 @@ export class VoxelSplatActor {
     this.voxelRuntime = this.buildExternalRuntimeAdapter(external);
     this.root = root;
     this.setProxyVisible(false);
+    this.setPoseMode(this.poseMode);
   }
 }

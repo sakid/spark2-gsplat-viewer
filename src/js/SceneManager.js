@@ -144,6 +144,7 @@ export class SceneManager {
     this.editorTransformMode = 'translate';
     this.viewMode = 'full';
     this.showProxyRequested = true;
+    this.actorPoseModeRequested = 'walk';
     this.selectionRaycaster = new THREE.Raycaster();
     this.selectionPointer = new THREE.Vector2();
     this.pointerDownSelection = null;
@@ -401,6 +402,10 @@ export class SceneManager {
     busOn('voxel:extractActorRequested', () => {
       void this.extractSelectedVoxelActor();
     });
+    busOn('voxel:actorPoseModeRequested', (payload) => {
+      const requested = typeof payload === 'string' ? payload : payload?.mode;
+      this.applyActorPoseMode(requested, { silent: true });
+    });
     busOn('environment:viewMode', (mode) => {
       this.viewMode = mode === 'splats-only' ? 'splats-only' : 'full';
       this.applySceneViewMode();
@@ -498,6 +503,45 @@ export class SceneManager {
 
   findLargestConnectedVoxelSeedIndex(voxelData) {
     return findLargestConnectedSeedIndex(voxelData);
+  }
+
+  normalizeActorPoseMode(mode) {
+    return mode === 't-pose' ? 't-pose' : 'walk';
+  }
+
+  findSelectedVoxelActor() {
+    const selected = this.getPrimarySelectedObject();
+    if (!selected) return null;
+    let cursor = selected;
+    while (cursor) {
+      for (const entity of this.entities) {
+        if (!(entity instanceof VoxelSplatActor)) continue;
+        if (entity.root === cursor || entity.splatMesh === cursor) {
+          return entity;
+        }
+      }
+      cursor = cursor.parent ?? null;
+    }
+    return null;
+  }
+
+  applyActorPoseMode(mode, options = {}) {
+    const normalized = this.normalizeActorPoseMode(mode);
+    this.actorPoseModeRequested = normalized;
+    const actors = this.entities.filter((entity) => entity instanceof VoxelSplatActor);
+    if (actors.length < 1) return 0;
+    const selectedActor = this.findSelectedVoxelActor();
+    const target = selectedActor ?? actors[actors.length - 1];
+    target.setPoseMode(normalized);
+    if (!options?.silent) {
+      this.setStatus(
+        normalized === 't-pose'
+          ? 'Extracted actor switched to T-pose.'
+          : 'Extracted actor walk cycle resumed.',
+        'success'
+      );
+    }
+    return 1;
   }
 
   applySceneViewMode() {
@@ -939,7 +983,8 @@ export class SceneManager {
         owner: `extract-${Date.now()}`,
         splatMesh: extractedMesh,
         voxelData: subsetData,
-        initialClipIndex: 1
+        initialClipIndex: 1,
+        initialPoseMode: this.actorPoseModeRequested
       });
       await actor.init(this.context);
       this.applyManagedWorldMask(actor.splatMesh, extractedMaskBoxes);
@@ -973,7 +1018,7 @@ export class SceneManager {
       this.eventBus.emit('selection:focusRequested');
 
       this.setStatus(
-        `Extracted actor created (${subsetData.activeCount.toLocaleString()} voxels) with procedural walk cycle.`,
+        `Extracted actor created (${subsetData.activeCount.toLocaleString()} voxels) in ${this.actorPoseModeRequested === 't-pose' ? 'T-pose' : 'walk-cycle'} mode.`,
         'success'
       );
     } catch (error) {

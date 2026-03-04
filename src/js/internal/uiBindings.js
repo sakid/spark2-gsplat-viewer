@@ -103,6 +103,7 @@ export function bindUi(eventBus, root = document) {
   const voxelSelectConnectedBtn = byId('voxel-select-connected-btn', root);
   const voxelInvertSelectionBtn = byId('voxel-invert-selection-btn', root);
   const voxelExtractActorBtn = byId('voxel-extract-actor-btn', root);
+  const voxelActorPoseMode = byId('voxel-actor-pose-mode', root);
   const voxelAutoSegmentBtn = byId('voxel-auto-segment-btn', root);
   const voxelSegColorThreshold = byId('voxel-seg-color-threshold', root);
   const voxelSegMinCount = byId('voxel-seg-min-count', root);
@@ -379,6 +380,7 @@ export function bindUi(eventBus, root = document) {
     if (voxelSelectConnectedBtn) voxelSelectConnectedBtn.disabled = !voxelEditActive || voxelSelectionState.selectedCount !== 1;
     if (voxelInvertSelectionBtn) voxelInvertSelectionBtn.disabled = !voxelEditActive;
     if (voxelExtractActorBtn) voxelExtractActorBtn.disabled = !voxelEditActive || voxelSelectionState.selectedCount < 1;
+    if (voxelActorPoseMode) voxelActorPoseMode.disabled = !voxelEditActive;
     if (voxelAutoSegmentBtn) voxelAutoSegmentBtn.disabled = !voxelEditActive;
     if (voxelSegColorThreshold) voxelSegColorThreshold.disabled = !voxelEditActive;
     if (voxelSegMinCount) voxelSegMinCount.disabled = !voxelEditActive;
@@ -489,6 +491,9 @@ export function bindUi(eventBus, root = document) {
   on(voxelSelectConnectedBtn, 'click', () => eventBus.emit('voxel:selectConnectedRequested'), disposers);
   on(voxelInvertSelectionBtn, 'click', () => eventBus.emit('voxel:invertSelectionRequested'), disposers);
   on(voxelExtractActorBtn, 'click', () => eventBus.emit('voxel:extractActorRequested'), disposers);
+  on(voxelActorPoseMode, 'change', () => eventBus.emit('voxel:actorPoseModeRequested', {
+    mode: voxelActorPoseMode?.value === 't-pose' ? 't-pose' : 'walk'
+  }), disposers);
   on(sheepGizmoTarget, 'change', () => eventBus.emit('environment:sheepGizmoTarget', sheepGizmoTarget?.value ?? 'align'), disposers);
   on(sheepGizmoMode, 'change', () => eventBus.emit('environment:sheepGizmoMode', sheepGizmoMode?.value ?? 'translate'), disposers);
   on(sheepAlignApply, 'click', emitSheepAlign, disposers);

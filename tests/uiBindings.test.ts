@@ -384,4 +384,58 @@ describe('uiBindings workflow controls', () => {
 
     dispose();
   });
+
+  test('emits extracted actor pose mode requests', () => {
+    const ids = new Map<string, FakeElement>([
+      ['file-input', new FakeElement()],
+      ['splat-loaded-name', new FakeElement()],
+      ['load-btn', new FakeElement()],
+      ['clear-btn', new FakeElement()],
+      ['run-voxel-workflow-btn', new FakeElement()],
+      ['workflow-summary', new FakeElement()],
+      ['proxy-file-input', new FakeElement()],
+      ['realign-proxy-btn', new FakeElement()],
+      ['proxy-flip-updown', new FakeElement()],
+      ['proxy-mirror-x', new FakeElement()],
+      ['proxy-mirror-z', new FakeElement()],
+      ['proxy-align-profile', new FakeElement()],
+      ['generate-voxel-btn', new FakeElement()],
+      ['regenerate-voxel-rig-btn', new FakeElement()],
+      ['export-voxel-glb-btn', new FakeElement()],
+      ['voxel-edit-mode', new FakeElement()],
+      ['view-mode', new FakeElement()],
+      ['show-proxy-mesh', new FakeElement()],
+      ['show-proxy-bones', new FakeElement()],
+      ['show-light-helpers', new FakeElement()],
+      ['show-light-gizmos', new FakeElement()],
+      ['show-lighting-probes', new FakeElement()],
+      ['collision-enabled', new FakeElement()],
+      ['voxel-actor-pose-mode', new FakeElement()]
+    ]);
+
+    (ids.get('splat-loaded-name') as FakeElement).textContent = 'Loaded: actor.spz';
+    (ids.get('view-mode') as FakeElement).value = 'full';
+
+    const eventBus = createEventBus();
+    const poseSpy = vi.fn();
+    eventBus.on('voxel:actorPoseModeRequested', poseSpy);
+
+    const dispose = bindUi(eventBus, rootWith(ids) as any);
+    eventBus.emit('environment:proxyKind', 'voxel');
+
+    const voxelEditMode = ids.get('voxel-edit-mode') as FakeElement;
+    const poseMode = ids.get('voxel-actor-pose-mode') as FakeElement;
+    voxelEditMode.checked = true;
+    voxelEditMode.dispatch('change');
+
+    poseMode.value = 't-pose';
+    poseMode.dispatch('change');
+    expect(poseSpy).toHaveBeenCalledWith({ mode: 't-pose' });
+
+    poseMode.value = 'walk';
+    poseMode.dispatch('change');
+    expect(poseSpy).toHaveBeenCalledWith({ mode: 'walk' });
+
+    dispose();
+  });
 });

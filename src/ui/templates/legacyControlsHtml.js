@@ -328,6 +328,11 @@ export const LEGACY_CONTROLS_HTML = `
           <button id="voxel-delete-btn" type="button">Delete selected</button>
           <button id="voxel-undo-btn" type="button">Undo</button>
         </div>
+        <label for="voxel-actor-pose-mode">Extracted actor pose</label>
+        <select id="voxel-actor-pose-mode">
+          <option value="walk" selected>Walk cycle</option>
+          <option value="t-pose">T-pose (bind pose)</option>
+        </select>
         <button id="voxel-extract-actor-btn" type="button">Extract actor + walk cycle</button>
       </div>
     </div>
