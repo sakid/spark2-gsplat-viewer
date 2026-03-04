@@ -99,6 +99,36 @@ describe('voxelizer', () => {
         expect(data.mesh.count).toBe(1);
     });
 
+    test('keeps generated voxels aligned to transformed splat world space', async () => {
+        const splats = [];
+        for (let i = 0; i < 10; i++) {
+            splats.push({ center: [0.25, 0.25, 0.25] as [number, number, number], opacity: 1 });
+        }
+
+        const mesh = createMockSplatMesh(splats);
+        mesh.position.set(10, 0, 0);
+
+        const result = await generateVoxelMesh(mesh, {
+            resolution: 1.0,
+            densityThreshold: 5
+        });
+
+        expect(result).not.toBeNull();
+        const data = result as VoxelData;
+        expect(data.keyToIndex.has('10,0,0')).toBe(true);
+        expect(data.keyToIndex.has('0,0,0')).toBe(false);
+
+        const index = data.keyToIndex.get('10,0,0');
+        expect(typeof index).toBe('number');
+
+        const matrix = new THREE.Matrix4();
+        data.mesh.getMatrixAt(index as number, matrix);
+        const position = new THREE.Vector3().setFromMatrixPosition(matrix);
+        expect(position.x).toBeCloseTo(10.5, 5);
+        expect(position.y).toBeCloseTo(0.5, 5);
+        expect(position.z).toBeCloseTo(0.5, 5);
+    });
+
     test('calls onProgress callback', async () => {
         const splats = [];
         for (let i = 0; i < 10; i++) {
