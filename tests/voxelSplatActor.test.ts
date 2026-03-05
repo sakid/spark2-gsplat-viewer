@@ -87,4 +87,26 @@ describe('VoxelSplatActor', () => {
     expect(actor.activeClipIndex).toBe(1);
     expect(actor.poseMode).toBe('walk');
   });
+
+  test('getFocusBoundingBox derives actor framing bounds from voxel subset', () => {
+    const actor = new VoxelSplatActor({
+      voxelData: {
+        occupiedKeys: new Set(['0,0,0', '1,2,1']),
+        resolution: 0.5,
+        origin: { x: 1, y: 2, z: 3 }
+      } as any
+    });
+
+    const first = actor.getFocusBoundingBox();
+    const second = actor.getFocusBoundingBox();
+    expect(first).toBeTruthy();
+    expect(second).toBeTruthy();
+    expect(first).not.toBe(second);
+    expect(first?.min.x).toBeCloseTo(1);
+    expect(first?.min.y).toBeCloseTo(2);
+    expect(first?.min.z).toBeCloseTo(3);
+    expect(first?.max.x).toBeCloseTo(2);
+    expect(first?.max.y).toBeCloseTo(3.5);
+    expect(first?.max.z).toBeCloseTo(4);
+  });
 });

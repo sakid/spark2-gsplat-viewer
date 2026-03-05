@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { VoxelAutoRigRuntime } from '../internal/voxelAutoRigRuntime';
 import { ExternalProxyRuntime } from '../internal/externalProxyRuntime';
 import { computeProxyAlignment } from '../internal/proxyAlign';
@@ -85,6 +86,10 @@ export class VoxelSplatActor {
     this.walkSpeed = 1.0;
     this.poseMode = normalizePoseMode(initialPoseMode);
     this.walkStateBeforeTPose = null;
+    this.focusBounds = null;
+    this.focusFrameObject = {
+      getBoundingBox: () => this.getFocusBoundingBox()
+    };
   }
 
   async init(context) {
@@ -131,11 +136,63 @@ export class VoxelSplatActor {
     this.standardRigBoneCount = 0;
     this.poseFitMetrics = null;
     this.walkStateBeforeTPose = null;
+    this.focusBounds = null;
     this.root?.removeFromParent?.();
     this.root = null;
     this.splatMesh?.dispose?.();
     this.splatMesh = null;
     this.voxelData = null;
+  }
+
+  getFocusBoundingBox() {
+    if (this.focusBounds) {
+      return this.focusBounds.clone();
+    }
+    const voxelData = this.voxelData;
+    if (!voxelData?.occupiedKeys?.size) {
+      if (typeof this.splatMesh?.getBoundingBox === 'function') {
+        try {
+          return this.splatMesh.getBoundingBox(false);
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    }
+
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let minZ = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+    let maxZ = Number.NEGATIVE_INFINITY;
+    for (const key of voxelData.occupiedKeys) {
+      const [xRaw, yRaw, zRaw] = String(key).split(',');
+      const x = Number(xRaw) || 0;
+      const y = Number(yRaw) || 0;
+      const z = Number(zRaw) || 0;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      minZ = Math.min(minZ, z);
+      maxX = Math.max(maxX, x + 1);
+      maxY = Math.max(maxY, y + 1);
+      maxZ = Math.max(maxZ, z + 1);
+    }
+
+    const resolution = Math.max(1e-6, Number(voxelData.resolution) || 1);
+    const origin = voxelData.origin ?? { x: 0, y: 0, z: 0 };
+    const min = new THREE.Vector3(
+      origin.x + minX * resolution,
+      origin.y + minY * resolution,
+      origin.z + minZ * resolution
+    );
+    const max = new THREE.Vector3(
+      origin.x + maxX * resolution,
+      origin.y + maxY * resolution,
+      origin.z + maxZ * resolution
+    );
+    this.focusBounds = new THREE.Box3(min, max);
+    return this.focusBounds.clone();
   }
 
   setPoseMode(mode = DEFAULT_POSE_MODE) {
@@ -223,7 +280,7 @@ export class VoxelSplatActor {
     root.userData = {
       ...(root.userData ?? {}),
       editorSelectableRoot: true,
-      editorFocusTarget: this.splatMesh
+      editorFocusTarget: this.focusFrameObject
     };
 
     this.splatMesh.removeFromParent?.();
@@ -302,7 +359,7 @@ export class VoxelSplatActor {
     root.userData = {
       ...(root.userData ?? {}),
       editorSelectableRoot: true,
-      editorFocusTarget: this.splatMesh
+      editorFocusTarget: this.focusFrameObject
     };
 
     const bones = external.asset?.skinnedMeshes?.[0]?.skeleton?.bones ?? [];

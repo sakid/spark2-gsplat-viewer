@@ -1013,7 +1013,7 @@ export class SceneManager {
         target: 'object',
         uuids: actor.root?.uuid ? [actor.root.uuid] : [],
         object: actor.root ?? null,
-        frameObject: actor.splatMesh ?? actor.root ?? null
+        frameObject: actor.focusFrameObject ?? actor.splatMesh ?? actor.root ?? null
       });
       this.eventBus.emit('selection:focusRequested');
 
