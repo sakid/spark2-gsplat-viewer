@@ -57,6 +57,8 @@ export class SceneManager {
     this.uiRoot = null;
     this.selectedObjectUuid = null;
     this.selectionDispose = () => {};
+    this.defaultWalkingSceneBootstrapped = false;
+    this.defaultWalkingSceneDispose = () => {};
   }
 
   async init() {
@@ -136,7 +138,21 @@ export class SceneManager {
       renderer: this.renderer
     });
 
+    this.defaultWalkingSceneDispose = this.eventBus.on?.('environment:splatLoaded', () => {
+      this.bootstrapDefaultWalkingSceneIfNeeded();
+    }) ?? (() => this.eventBus.off?.('environment:splatLoaded', this.bootstrapDefaultWalkingSceneIfNeeded));
+
+    this.bootstrapDefaultWalkingSceneIfNeeded();
+
     this.setStatus('SPARK 2.0 proxy-driven engine initialized.', 'success');
+  }
+
+  bootstrapDefaultWalkingSceneIfNeeded() {
+    if (this.defaultWalkingSceneBootstrapped) return;
+    const environment = this.findEnvironmentEntity();
+    if (!environment?.splatMesh) return;
+    this.defaultWalkingSceneBootstrapped = true;
+    this.eventBus.emit('environment:generateVoxel');
   }
 
   bindUiWhenReady() {
@@ -593,6 +609,8 @@ export class SceneManager {
   }
 
   dispose() {
+    this.defaultWalkingSceneDispose?.();
+    this.defaultWalkingSceneDispose = () => {};
     for (const entity of [...this.entities].reverse()) entity.dispose();
     this.selectionDispose?.();
     this.uiReadyDispose();

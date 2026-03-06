@@ -1,0 +1,263 @@
+export const LEGACY_CONTROLS_HTML = `
+<div id="panel" aria-label="Controls">
+  <div class="panel-header">
+    <h1>SparkJS 2 Preview Viewer</h1>
+    <button id="hide-panel-btn" type="button" aria-label="Hide options panel">Hide panel</button>
+  </div>
+
+  <label for="file-input">Splat file</label>
+  <input id="file-input" type="file" accept=".spz,.ply,.splat,.ksplat" />
+  <small id="splat-loaded-name" style="color:#94a3b8;">Loaded: Sean_Sheep.spz</small>
+
+  <label for="load-mode">Load mode</label>
+  <select id="load-mode">
+    <option value="spz" selected>SPZ / compressed (recommended)</option>
+    <option value="raw-ply">Raw PLY (high memory risk)</option>
+  </select>
+
+  <div class="row">
+    <button id="load-btn" type="button">Load file</button>
+    <button id="clear-btn" type="button">Clear scene</button>
+  </div>
+
+  <section class="section" aria-label="Collision">
+    <h2>Collision & Proxy Mesh</h2>
+    <label for="proxy-file-input">Proxy Geometry (.glb, .obj)</label>
+    <input id="proxy-file-input" type="file" accept=".glb,.gltf,.obj" />
+    <small id="proxy-loaded-name" style="color:#94a3b8;">Loaded: sean_proxy_animated.glb</small>
+
+    <div class="row">
+      <button id="realign-proxy-btn" type="button">Re-align proxy</button>
+    </div>
+
+    <label class="toggle" for="proxy-flip-updown">
+      <input id="proxy-flip-updown" type="checkbox" />
+      <span>Proxy flip upside down (proxy only)</span>
+    </label>
+
+    <label class="toggle" for="proxy-mirror-x">
+      <input id="proxy-mirror-x" type="checkbox" />
+      <span>Proxy mirror X (proxy only)</span>
+    </label>
+
+    <label class="toggle" for="proxy-mirror-z">
+      <input id="proxy-mirror-z" type="checkbox" />
+      <span>Proxy mirror Z (proxy only)</span>
+    </label>
+
+    <label for="proxy-align-profile">Proxy align profile</label>
+    <select id="proxy-align-profile">
+      <option value="auto" selected>Auto (recommended)</option>
+      <option value="character">Character</option>
+      <option value="generic">Generic mesh</option>
+    </select>
+
+    <label class="toggle" for="proxy-edit-mode">
+      <input id="proxy-edit-mode" type="checkbox" />
+      <span>Proxy Edit Mode (orbit + gizmo)</span>
+    </label>
+
+    <label for="proxy-gizmo-mode">Proxy gizmo</label>
+    <select id="proxy-gizmo-mode">
+      <option value="translate" selected>Translate</option>
+      <option value="rotate">Rotate</option>
+      <option value="scale">Scale</option>
+    </select>
+
+    <div class="row">
+      <button id="reset-proxy-transform-btn" type="button">Reset proxy transform</button>
+    </div>
+
+    <label class="toggle" for="collision-enabled">
+      <input id="collision-enabled" type="checkbox" />
+      <span>Enable collision</span>
+    </label>
+
+    <label class="toggle" for="show-proxy-mesh">
+      <input id="show-proxy-mesh" type="checkbox" />
+      <span>Show proxy mesh (debug)</span>
+    </label>
+
+    <label for="proxy-anim-clip">Proxy animation clip</label>
+    <select id="proxy-anim-clip"><option value="">No animation clips</option></select>
+    <label class="toggle" for="proxy-anim-play">
+      <input id="proxy-anim-play" type="checkbox" checked />
+      <span>Play proxy animation</span>
+    </label>
+    <label for="proxy-anim-speed">Proxy animation speed</label>
+    <input id="proxy-anim-speed" type="number" min="0" max="20" step="0.1" value="4" />
+    <button id="proxy-anim-restart" type="button">Restart proxy animation</button>
+    <label for="proxy-collision-mode">Proxy collision mode</label>
+    <select id="proxy-collision-mode">
+      <option value="bone" selected>Bone (animated)</option>
+      <option value="static">Static mesh</option>
+      <option value="off">Off</option>
+    </select>
+    <label class="toggle" for="proxy-deform-splat">
+      <input id="proxy-deform-splat" type="checkbox" checked />
+      <span>Deform splat from proxy animation</span>
+    </label>
+
+    <div class="row">
+      <button id="generate-voxel-btn" type="button">Auto-Generate Proxy Mesh</button>
+      <button id="export-voxel-glb-btn" type="button">Export Voxel Proxy (.glb)</button>
+    </div>
+    <div class="light-row-advanced" aria-label="Voxel config">
+      <label for="voxel-resolution">Voxel Size</label>
+      <input id="voxel-resolution" type="number" min="0.1" max="5" step="0.1" value="0.5" title="Size in meters" />
+      <label for="voxel-density">Density</label>
+      <input id="voxel-density" type="number" min="1" max="100" step="1" value="2" title="Splat count to make solid" />
+    </div>
+
+    <label class="toggle" for="voxel-edit-mode">
+      <input id="voxel-edit-mode" type="checkbox" />
+      <span>Voxel Edit Mode</span>
+    </label>
+    <div id="voxel-edit-controls" style="display:none;">
+      <span id="voxel-selection-count">0 selected</span>
+      <div class="row">
+        <button id="voxel-delete-btn" type="button">Delete Selected</button>
+        <button id="voxel-undo-btn" type="button">Undo</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-label="Scene organizer">
+    <h2>Scene Organizer</h2>
+    <label class="toggle" for="outliner-edit-mode">
+      <input id="outliner-edit-mode" type="checkbox" />
+      <span>Outliner Edit Mode (orbit + gizmo)</span>
+    </label>
+    <label for="outliner-gizmo-mode">Outliner gizmo</label>
+    <select id="outliner-gizmo-mode">
+      <option value="translate" selected>Translate</option>
+      <option value="rotate">Rotate</option>
+      <option value="scale">Scale</option>
+    </select>
+    <label for="outliner-search">Search objects</label>
+    <input id="outliner-search" type="text" placeholder="Filter scene objects..." />
+    <div class="row">
+      <button id="outliner-focus-btn" type="button">Focus selected</button>
+      <button id="export-scene-glb-btn" type="button">Export Scene (.glb)</button>
+    </div>
+    <div id="outliner-list" class="outliner-list"></div>
+  </section>
+
+  <label for="lod-scale">LoD scale</label>
+  <input id="lod-scale" type="number" min="0.1" max="10" step="0.1" value="1.0" />
+
+  <label for="lod-count">LoD splat count</label>
+  <input id="lod-count" type="number" min="10000" step="10000" value="1500000" />
+
+  <label class="toggle" for="quality-improved">
+    <input id="quality-improved" type="checkbox" />
+    <span>Improved render quality</span>
+  </label>
+
+  <label class="toggle" for="quality-max-detail">
+    <input id="quality-max-detail" type="checkbox" />
+    <span>Source quality mode (disable LoD on mesh)</span>
+  </label>
+
+  <label class="toggle" for="flip-updown">
+    <input id="flip-updown" type="checkbox" />
+    <span>Flip upside down</span>
+  </label>
+
+  <label class="toggle" for="flip-leftright">
+    <input id="flip-leftright" type="checkbox" />
+    <span>Flip left-right</span>
+  </label>
+
+  <section class="section" aria-label="Lighting editor">
+    <h2>Lighting Editor</h2>
+    <div class="row">
+      <select id="new-light-type" aria-label="New light type">
+        <option value="ambient">Ambient</option>
+        <option value="directional" selected>Directional</option>
+        <option value="point">Point</option>
+        <option value="spot">Spot</option>
+      </select>
+      <button id="add-light-btn" type="button">Add light</button>
+    </div>
+    <label class="toggle" for="light-edit-mode">
+      <input id="light-edit-mode" type="checkbox" />
+      <span>Light Edit Mode (orbit + gizmo)</span>
+    </label>
+    <label class="toggle" for="show-light-helpers">
+      <input id="show-light-helpers" type="checkbox" checked />
+      <span>Show light helpers</span>
+    </label>
+    <label class="toggle" for="show-light-gizmos">
+      <input id="show-light-gizmos" type="checkbox" checked />
+      <span>Show light gizmos</span>
+    </label>
+    <label class="toggle" for="show-movement-controls">
+      <input id="show-movement-controls" type="checkbox" checked />
+      <span>Show movement controls</span>
+    </label>
+    <label class="toggle" for="show-lighting-probes">
+      <input id="show-lighting-probes" type="checkbox" checked />
+      <span>Show lighting probes</span>
+    </label>
+    <label for="light-gizmo-submode">Gizmo submode</label>
+    <select id="light-gizmo-submode">
+      <option value="position" selected>Position</option>
+      <option value="target">Target</option>
+    </select>
+    <label class="movement-controls" for="light-move-step">Movement step</label>
+    <input id="light-move-step" class="movement-controls" type="number" min="0.01" max="100" step="0.01" value="0.5" />
+
+    <label class="toggle" for="physically-correct-lights">
+      <input id="physically-correct-lights" type="checkbox" checked />
+      <span>Physically correct lights</span>
+    </label>
+    <label class="toggle" for="shadows-enabled">
+      <input id="shadows-enabled" type="checkbox" checked />
+      <span>Shadows enabled</span>
+    </label>
+    <label for="tone-mapping">Tone mapping</label>
+    <select id="tone-mapping">
+      <option value="ACESFilmic" selected>ACES Filmic</option>
+      <option value="Neutral">Neutral</option>
+      <option value="None">None</option>
+    </select>
+    <label for="tone-mapping-exposure">Tone mapping exposure</label>
+    <input id="tone-mapping-exposure" type="number" min="0.05" max="8" step="0.05" value="1.0" />
+
+    <div id="light-list" class="light-list"></div>
+  </section>
+
+  <section class="section" aria-label="Scene save and load">
+    <h2>Scene Save/Load</h2>
+    <label for="scene-name">Scene name</label>
+    <input id="scene-name" type="text" value="Untitled Scene" maxlength="120" />
+
+    <div class="row">
+      <button id="save-scene-file-btn" type="button">Save scene file</button>
+      <button id="open-scene-file-btn" type="button">Load scene file</button>
+    </div>
+    <input id="load-scene-file-input" type="file" accept=".json,.sparkscene.json" hidden />
+
+    <label for="scene-slot-name">Slot name</label>
+    <input id="scene-slot-name" type="text" placeholder="my-light-setup" maxlength="80" />
+
+    <div class="row">
+      <button id="save-scene-slot-btn" type="button">Save slot</button>
+      <select id="scene-slot-select" aria-label="Saved scene slots"></select>
+    </div>
+    <div class="row">
+      <button id="load-scene-slot-btn" type="button">Load slot</button>
+      <button id="delete-scene-slot-btn" type="button">Delete slot</button>
+    </div>
+  </section>
+
+  <div id="missing-splat-prompt" class="missing-splat" hidden>
+    <p id="missing-splat-text"></p>
+    <button id="pick-missing-splat-btn" type="button">Pick referenced splat</button>
+  </div>
+
+  <p id="status" role="status">Waiting for Spark preview module...</p>
+</div>
+<button id="show-panel-btn" type="button" aria-label="Show options panel" hidden>Show options</button>
+`;
