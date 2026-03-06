@@ -8,6 +8,7 @@ import { EditorCommandHistory } from './internal/editorCommandHistory';
 import { applySparkCovOnlyPatch } from './internal/patchSparkCovOnly';
 import { applySelectionClick, pickSelectionObject } from './internal/selectionPicking';
 import { loadSplatFromFile, loadSplatFromUrl } from './internal/splatLoaders';
+import { buildSplatSubsetMeshFromVoxelKeys } from './internal/splatSubset';
 import { DEFAULT_BOOT_SPLAT_URL, FALLBACK_SPLAT_URL } from './internal/startupAssets';
 import { GeneralLights } from './sceneSubjects/GeneralLights';
 import { CameraControls } from './sceneSubjects/CameraControls';
@@ -816,6 +817,20 @@ export class SceneManager {
     mesh.position.copy(sourceMesh.position);
     mesh.quaternion.copy(sourceMesh.quaternion);
     mesh.scale.copy(sourceMesh.scale);
+    mesh.frustumCulled = false;
+    mesh.renderOrder = sourceMesh.renderOrder;
+    if ('enableLod' in mesh && ('enableLod' in sourceMesh || 'enableLoD' in sourceMesh)) {
+      mesh.enableLod = sourceMesh.enableLod ?? sourceMesh.enableLoD ?? mesh.enableLod;
+    }
+    if ('enableLoD' in mesh && ('enableLoD' in sourceMesh || 'enableLod' in sourceMesh)) {
+      mesh.enableLoD = sourceMesh.enableLoD ?? sourceMesh.enableLod ?? mesh.enableLoD;
+    }
+    if (typeof sourceMesh.opacity === 'number') {
+      mesh.opacity = sourceMesh.opacity;
+    }
+    if (sourceMesh.recolor?.isColor && mesh.recolor?.isColor) {
+      mesh.recolor.copy(sourceMesh.recolor);
+    }
     mesh.updateMatrixWorld(true);
     return mesh;
   }
@@ -960,11 +975,6 @@ export class SceneManager {
       maxScale: 2.5
     });
 
-    const nonSelectedKeys = [];
-    for (const key of voxelData.occupiedKeys) {
-      if (!extractionKeys.has(key)) nonSelectedKeys.push(key);
-    }
-
     const subsetData = this.buildVoxelSubsetData(voxelData, extractionKeys);
     if (!subsetData || subsetData.activeCount < 1) {
       this.setStatus('Selected voxels could not be converted into an actor.', 'error');
@@ -974,9 +984,49 @@ export class SceneManager {
     this.setStatus('Extracting voxel-selected actor...', 'info');
 
     let extractedMesh = null;
+    let extractedSplatCount = 0;
+    let actorMaskBoxes = null;
     try {
-      extractedMesh = await this.cloneSplatForExtraction(environment.splatMesh, environment?.splatSource ?? null);
-      const extractedMaskBoxes = mergeVoxelKeysToBoxes(nonSelectedKeys, voxelData.resolution, voxelData.origin);
+      let subsetFailure = null;
+      try {
+        const subsetResult = await buildSplatSubsetMeshFromVoxelKeys({
+          sourceMesh: environment.splatMesh,
+          sparkModule: this.sparkModule,
+          selectedKeys: extractionKeys,
+          voxelData
+        });
+        extractedSplatCount = subsetResult?.splatCount ?? 0;
+        extractedMesh = subsetResult?.mesh ?? null;
+
+        if (extractedMesh) {
+          this.configureExtractedSplatMesh(extractedMesh, environment.splatMesh);
+          if (!this.isRenderableSplatMesh(extractedMesh)) {
+            extractedMesh.removeFromParent?.();
+            extractedMesh.dispose?.();
+            extractedMesh = null;
+          }
+        }
+      } catch (error) {
+        subsetFailure = error;
+        extractedMesh?.removeFromParent?.();
+        extractedMesh?.dispose?.();
+        extractedMesh = null;
+      }
+
+      if (!extractedMesh) {
+        if (subsetFailure) {
+          this.setStatus(
+            `Per-splat extraction unavailable; falling back to masked clone: ${subsetFailure instanceof Error ? subsetFailure.message : String(subsetFailure)}`,
+            'info'
+          );
+        }
+        const nonSelectedKeys = [];
+        for (const key of voxelData.occupiedKeys) {
+          if (!extractionKeys.has(key)) nonSelectedKeys.push(key);
+        }
+        extractedMesh = await this.cloneSplatForExtraction(environment.splatMesh, environment?.splatSource ?? null);
+        actorMaskBoxes = mergeVoxelKeysToBoxes(nonSelectedKeys, voxelData.resolution, voxelData.origin);
+      }
 
       const actor = new VoxelSplatActor({
         name: `Extracted ${environment.splatMesh.name || 'Actor'}`,
@@ -987,7 +1037,11 @@ export class SceneManager {
         initialPoseMode: this.actorPoseModeRequested
       });
       await actor.init(this.context);
-      this.applyManagedWorldMask(actor.splatMesh, extractedMaskBoxes);
+      if (actorMaskBoxes) {
+        this.applyManagedWorldMask(actor.splatMesh, actorMaskBoxes);
+      } else {
+        this.clearManagedWorldMask(actor.splatMesh);
+      }
       this.entities.push(actor);
       actor.setProxyVisible(this.viewMode !== 'splats-only' && this.showProxyRequested);
 
@@ -1018,7 +1072,7 @@ export class SceneManager {
       this.eventBus.emit('selection:focusRequested');
 
       this.setStatus(
-        `Extracted actor created (${subsetData.activeCount.toLocaleString()} voxels) in ${this.actorPoseModeRequested === 't-pose' ? 'T-pose' : 'walk-cycle'} mode.`,
+        `Extracted actor created (${subsetData.activeCount.toLocaleString()} voxels, ${Math.max(0, extractedSplatCount).toLocaleString()} splats) in ${this.actorPoseModeRequested === 't-pose' ? 'T-pose' : 'walk-cycle'} mode.`,
         'success'
       );
     } catch (error) {
