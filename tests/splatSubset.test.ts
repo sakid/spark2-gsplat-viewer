@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { describe, expect, test } from 'vitest';
-import { buildSplatSubsetMeshFromVoxelKeys } from '../src/js/internal/splatSubset';
+import {
+  buildSplatSubsetMeshFromVoxelKeys,
+  collectSplatIndicesForVoxelKeys
+} from '../src/js/internal/splatSubset';
 
 function createSourceMesh({
   splats,
@@ -81,7 +84,8 @@ describe('splatSubset', () => {
       voxelData: {
         resolution: 0.5,
         origin: { x: 1, y: 2, z: 3 }
-      }
+      },
+      overlapScale: 0
     });
 
     expect(result.method).toBe('push');
@@ -89,6 +93,8 @@ describe('splatSubset', () => {
     expect(result.mesh).toBeInstanceOf(PushSplatMesh);
     expect((result.mesh as unknown as PushSplatMesh).numSplats).toBe(2);
     expect((result.mesh as unknown as PushSplatMesh).splatCount).toBe(2);
+    expect((result.mesh as unknown as PushSplatMesh).options.lod).toBe(false);
+    expect((result.mesh as unknown as PushSplatMesh).options.nonLod).toBe(true);
     expect((result.mesh as unknown as PushSplatMesh).pushed.map((entry) => entry.center.toArray())).toEqual([
       [0.25, 0.25, 0.25],
       [1.25, 0.75, 0.25]
@@ -162,7 +168,8 @@ describe('splatSubset', () => {
       voxelData: {
         resolution: 1,
         origin: { x: 0, y: 0, z: 0 }
-      }
+      },
+      overlapScale: 0
     });
 
     const subset = (result.mesh as unknown as PackedSplatMesh).packedSplats;
@@ -178,5 +185,27 @@ describe('splatSubset', () => {
       3001, 3002, 3003, 3004
     ]);
     expect(subset?.packedArray.length).toBe(2048 * 4);
+  });
+
+  test('includes splats whose support overlaps selected voxels even when centers fall outside', () => {
+    const sourceMesh = createSourceMesh({
+      splats: [
+        { center: new THREE.Vector3(0.72, 0.25, 0.25) },
+        { center: new THREE.Vector3(1.6, 0.25, 0.25) }
+      ]
+    });
+
+    const indices = collectSplatIndicesForVoxelKeys({
+      sourceMesh,
+      selectedKeys: new Set(['0,0,0']),
+      voxelData: {
+        resolution: 0.5,
+        origin: { x: 0, y: 0, z: 0 }
+      },
+      overlapScale: 0.25,
+      maxVoxelRadius: 1
+    });
+
+    expect(indices).toEqual([0]);
   });
 });

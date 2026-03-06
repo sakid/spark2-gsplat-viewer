@@ -3,8 +3,11 @@ import { voxelHash } from '../../viewer/voxelizer';
 import { normalizeSplatMeshCounts } from './splatMeshCounts';
 
 const SPARK_SPLAT_TEXTURE_WIDTH = 2048;
+const DEFAULT_OVERLAP_SCALE = 2.0;
+const DEFAULT_MAX_VOXEL_RADIUS = 2;
 
 const tempWorldCenter = new THREE.Vector3();
+const tempWorldScale = new THREE.Vector3(1, 1, 1);
 
 function toFiniteNumber(value, fallback = 0) {
   const number = Number(value);
@@ -65,7 +68,7 @@ function getSubsetMeshOptions(sourceMesh, overrides = {}) {
     editable: sourceMesh?.editable,
     raycastable: sourceMesh?.raycastable,
     covSplats: sourceMesh?.covSplats === true,
-    lod: true,
+    lod: false,
     nonLod: true,
     maxSh: Number(sourceMesh?.maxSh ?? sourceMesh?.packedSplats?.maxSh ?? sourceMesh?.extSplats?.maxSh) || 3,
     ...overrides
@@ -158,7 +161,83 @@ async function buildPushSubsetMesh(sourceMesh, sparkModule, indices) {
   return mesh;
 }
 
-export function collectSplatIndicesForVoxelKeys({ sourceMesh, selectedKeys, voxelData }) {
+function resolveWorldScaleMax(sourceMesh, worldMatrix) {
+  if (typeof sourceMesh?.getWorldScale === 'function') {
+    sourceMesh.getWorldScale(tempWorldScale);
+  } else {
+    tempWorldScale.setFromMatrixScale(worldMatrix);
+  }
+  return Math.max(
+    1e-6,
+    Math.abs(toFiniteNumber(tempWorldScale.x, 1)),
+    Math.abs(toFiniteNumber(tempWorldScale.y, 1)),
+    Math.abs(toFiniteNumber(tempWorldScale.z, 1))
+  );
+}
+
+function overlapsSelectedVoxelKeys({
+  selectedKeys,
+  centerKeyX,
+  centerKeyY,
+  centerKeyZ,
+  centerWorldX,
+  centerWorldY,
+  centerWorldZ,
+  scales,
+  origin,
+  resolution,
+  worldScaleMax,
+  overlapScale,
+  maxVoxelRadius
+}) {
+  const maxScale = Math.max(
+    0,
+    toFiniteNumber(scales?.x, 0),
+    toFiniteNumber(scales?.y, 0),
+    toFiniteNumber(scales?.z, 0)
+  );
+  const radiusWorld = Math.max(
+    0,
+    Math.min(maxVoxelRadius * resolution, maxScale * worldScaleMax * overlapScale)
+  );
+  const minKeyX = Math.floor((centerWorldX - radiusWorld - origin.x) / resolution);
+  const minKeyY = Math.floor((centerWorldY - radiusWorld - origin.y) / resolution);
+  const minKeyZ = Math.floor((centerWorldZ - radiusWorld - origin.z) / resolution);
+  const maxKeyX = Math.floor((centerWorldX + radiusWorld - origin.x) / resolution);
+  const maxKeyY = Math.floor((centerWorldY + radiusWorld - origin.y) / resolution);
+  const maxKeyZ = Math.floor((centerWorldZ + radiusWorld - origin.z) / resolution);
+
+  if (
+    minKeyX === centerKeyX
+    && maxKeyX === centerKeyX
+    && minKeyY === centerKeyY
+    && maxKeyY === centerKeyY
+    && minKeyZ === centerKeyZ
+    && maxKeyZ === centerKeyZ
+  ) {
+    return selectedKeys.has(voxelHash(centerKeyX, centerKeyY, centerKeyZ));
+  }
+
+  for (let x = minKeyX; x <= maxKeyX; x += 1) {
+    for (let y = minKeyY; y <= maxKeyY; y += 1) {
+      for (let z = minKeyZ; z <= maxKeyZ; z += 1) {
+        if (selectedKeys.has(voxelHash(x, y, z))) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+export function collectSplatIndicesForVoxelKeys({
+  sourceMesh,
+  selectedKeys,
+  voxelData,
+  overlapScale = DEFAULT_OVERLAP_SCALE,
+  maxVoxelRadius = DEFAULT_MAX_VOXEL_RADIUS
+}) {
   if (!(selectedKeys instanceof Set) || selectedKeys.size < 1) {
     return [];
   }
@@ -174,15 +253,28 @@ export function collectSplatIndicesForVoxelKeys({ sourceMesh, selectedKeys, voxe
   const worldMatrix = sourceMesh.matrixWorld instanceof THREE.Matrix4
     ? sourceMesh.matrixWorld
     : new THREE.Matrix4();
+  const worldScaleMax = resolveWorldScaleMax(sourceMesh, worldMatrix);
 
-  sourceMesh.forEachSplat((index, center) => {
+  sourceMesh.forEachSplat((index, center, scales) => {
     tempWorldCenter.copy(center).applyMatrix4(worldMatrix);
-    const key = voxelHash(
-      Math.floor((tempWorldCenter.x - origin.x) / resolution),
-      Math.floor((tempWorldCenter.y - origin.y) / resolution),
-      Math.floor((tempWorldCenter.z - origin.z) / resolution)
-    );
-    if (selectedKeys.has(key)) {
+    const keyX = Math.floor((tempWorldCenter.x - origin.x) / resolution);
+    const keyY = Math.floor((tempWorldCenter.y - origin.y) / resolution);
+    const keyZ = Math.floor((tempWorldCenter.z - origin.z) / resolution);
+    if (overlapsSelectedVoxelKeys({
+      selectedKeys,
+      centerKeyX: keyX,
+      centerKeyY: keyY,
+      centerKeyZ: keyZ,
+      centerWorldX: tempWorldCenter.x,
+      centerWorldY: tempWorldCenter.y,
+      centerWorldZ: tempWorldCenter.z,
+      scales,
+      origin,
+      resolution,
+      worldScaleMax,
+      overlapScale,
+      maxVoxelRadius
+    })) {
       indices.push(index);
     }
   });
@@ -194,7 +286,9 @@ export async function buildSplatSubsetMeshFromVoxelKeys({
   sourceMesh,
   sparkModule,
   selectedKeys,
-  voxelData
+  voxelData,
+  overlapScale = DEFAULT_OVERLAP_SCALE,
+  maxVoxelRadius = DEFAULT_MAX_VOXEL_RADIUS
 }) {
   if (!sourceMesh) {
     throw new Error('Missing source splat mesh.');
@@ -203,7 +297,9 @@ export async function buildSplatSubsetMeshFromVoxelKeys({
   const indices = collectSplatIndicesForVoxelKeys({
     sourceMesh,
     selectedKeys,
-    voxelData
+    voxelData,
+    overlapScale,
+    maxVoxelRadius
   });
   if (indices.length < 1) {
     return { mesh: null, splatCount: 0, method: 'empty' };

@@ -820,12 +820,8 @@ export class SceneManager {
     mesh.scale.copy(sourceMesh.scale);
     mesh.frustumCulled = false;
     mesh.renderOrder = sourceMesh.renderOrder;
-    if ('enableLod' in mesh && ('enableLod' in sourceMesh || 'enableLoD' in sourceMesh)) {
-      mesh.enableLod = sourceMesh.enableLod ?? sourceMesh.enableLoD ?? mesh.enableLod;
-    }
-    if ('enableLoD' in mesh && ('enableLoD' in sourceMesh || 'enableLod' in sourceMesh)) {
-      mesh.enableLoD = sourceMesh.enableLoD ?? sourceMesh.enableLod ?? mesh.enableLoD;
-    }
+    if ('enableLod' in mesh) mesh.enableLod = false;
+    if ('enableLoD' in mesh) mesh.enableLoD = false;
     if (typeof sourceMesh.opacity === 'number') {
       mesh.opacity = sourceMesh.opacity;
     }
