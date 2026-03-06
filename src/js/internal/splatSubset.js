@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { voxelHash } from '../../viewer/voxelizer';
+import { normalizeSplatMeshCounts } from './splatMeshCounts';
 
 const SPARK_SPLAT_TEXTURE_WIDTH = 2048;
 
@@ -105,7 +106,9 @@ async function buildPackedSubsetMesh(sourceMesh, sparkModule, indices) {
     await packedSplats.initialized;
   }
   packedSplats.maxSh = Number(sourcePacked.maxSh) || Number(sourceMesh?.maxSh) || 3;
-  return createSubsetMesh(sourceMesh, sparkModule, { packedSplats });
+  const mesh = await createSubsetMesh(sourceMesh, sparkModule, { packedSplats });
+  normalizeSplatMeshCounts(mesh, count);
+  return mesh;
 }
 
 async function buildExtSubsetMesh(sourceMesh, sparkModule, indices) {
@@ -133,7 +136,9 @@ async function buildExtSubsetMesh(sourceMesh, sparkModule, indices) {
     await extSplats.initialized;
   }
   extSplats.maxSh = Number(sourceExt.maxSh) || Number(sourceMesh?.maxSh) || 3;
-  return createSubsetMesh(sourceMesh, sparkModule, { extSplats });
+  const mesh = await createSubsetMesh(sourceMesh, sparkModule, { extSplats });
+  normalizeSplatMeshCounts(mesh, count);
+  return mesh;
 }
 
 async function buildPushSubsetMesh(sourceMesh, sparkModule, indices) {
@@ -149,6 +154,7 @@ async function buildPushSubsetMesh(sourceMesh, sparkModule, indices) {
     if (!selected.has(index)) return;
     mesh.pushSplat(center, scales, quaternion, opacity, color);
   });
+  normalizeSplatMeshCounts(mesh, indices.length);
   return mesh;
 }
 

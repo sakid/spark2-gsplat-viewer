@@ -9,6 +9,7 @@ import { applySparkCovOnlyPatch } from './internal/patchSparkCovOnly';
 import { applySelectionClick, pickSelectionObject } from './internal/selectionPicking';
 import { loadSplatFromFile, loadSplatFromUrl } from './internal/splatLoaders';
 import { buildSplatSubsetMeshFromVoxelKeys } from './internal/splatSubset';
+import { normalizeSplatMeshCounts } from './internal/splatMeshCounts';
 import { DEFAULT_BOOT_SPLAT_URL, FALLBACK_SPLAT_URL } from './internal/startupAssets';
 import { GeneralLights } from './sceneSubjects/GeneralLights';
 import { CameraControls } from './sceneSubjects/CameraControls';
@@ -831,6 +832,13 @@ export class SceneManager {
     if (sourceMesh.recolor?.isColor && mesh.recolor?.isColor) {
       mesh.recolor.copy(sourceMesh.recolor);
     }
+    normalizeSplatMeshCounts(
+      mesh,
+      sourceMesh?.numSplats
+        ?? sourceMesh?.packedSplats?.numSplats
+        ?? sourceMesh?.extSplats?.numSplats
+        ?? 0
+    );
     mesh.updateMatrixWorld(true);
     return mesh;
   }

@@ -1,5 +1,6 @@
 import { bindSplatToBones } from '../proxy/skinBinding';
 import * as THREE from 'three';
+import { normalizeSplatMeshCounts } from './splatMeshCounts';
 
 const tempMatrix = new THREE.Matrix4();
 const tempInv = new THREE.Matrix4();
@@ -44,6 +45,7 @@ export class ProxySplatDeformer {
     }
 
     try {
+      const totalSplats = normalizeSplatMeshCounts(this.splatMesh);
       const linearBlend = sparkModule.SplatSkinningMode?.LINEAR_BLEND ?? 'linear_blend';
       if (this.bones?.length) {
         this.ensureCovSplats();
@@ -67,7 +69,7 @@ export class ProxySplatDeformer {
         tempInv.copy(this.splatMesh.matrixWorld).invert();
         tempMatrix.multiplyMatrices(tempInv, this.animatedRoot.matrixWorld);
         this.skinning.setRestMatrix?.(0, tempMatrix);
-        const total = Math.max(0, Number(this.splatMesh.numSplats ?? 0));
+        const total = Math.max(0, totalSplats);
         this.pendingWeights = total > 1_000_000 ? { next: 0, total } : null;
         if (!this.pendingWeights) {
           for (let i = 0; i < total; i += 1) this.skinning.setSplatBones(i, INDEX0, WEIGHT0);

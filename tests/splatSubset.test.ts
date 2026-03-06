@@ -44,6 +44,8 @@ describe('splatSubset', () => {
       options: Record<string, unknown>;
       pushed: Array<{ center: THREE.Vector3; opacity: number }>;
       initialized: Promise<this>;
+      numSplats = 0;
+      splatCount = 0;
 
       constructor(options: Record<string, unknown>) {
         this.options = options;
@@ -85,6 +87,8 @@ describe('splatSubset', () => {
     expect(result.method).toBe('push');
     expect(result.splatCount).toBe(2);
     expect(result.mesh).toBeInstanceOf(PushSplatMesh);
+    expect((result.mesh as unknown as PushSplatMesh).numSplats).toBe(2);
+    expect((result.mesh as unknown as PushSplatMesh).splatCount).toBe(2);
     expect((result.mesh as unknown as PushSplatMesh).pushed.map((entry) => entry.center.toArray())).toEqual([
       [0.25, 0.25, 0.25],
       [1.25, 0.75, 0.25]
@@ -113,6 +117,8 @@ describe('splatSubset', () => {
       options: Record<string, unknown>;
       packedSplats: PackedSplats | null;
       initialized: Promise<this>;
+      numSplats = 0;
+      splatCount = 0;
 
       constructor(options: Record<string, unknown>) {
         this.options = options;
@@ -162,6 +168,8 @@ describe('splatSubset', () => {
     const subset = (result.mesh as unknown as PackedSplatMesh).packedSplats;
     expect(result.method).toBe('packed-array');
     expect(result.splatCount).toBe(2);
+    expect((result.mesh as unknown as PackedSplatMesh).numSplats).toBe(2);
+    expect((result.mesh as unknown as PackedSplatMesh).splatCount).toBe(2);
     expect(subset?.numSplats).toBe(2);
     expect(Array.from(subset?.packedArray.slice(0, 8) ?? [])).toEqual([10, 11, 12, 13, 30, 31, 32, 33]);
     expect(Array.from((subset?.extra.sh1 as Uint32Array).slice(0, 4))).toEqual([101, 102, 301, 302]);
