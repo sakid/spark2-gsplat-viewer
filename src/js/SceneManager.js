@@ -11,6 +11,8 @@ import { loadSplatFromFile, loadSplatFromUrl } from './internal/splatLoaders';
 import { buildSplatSubsetMeshFromVoxelKeys } from './internal/splatSubset';
 import { normalizeSplatMeshCounts } from './internal/splatMeshCounts';
 import { DEFAULT_BOOT_SPLAT_URL, FALLBACK_SPLAT_URL } from './internal/startupAssets';
+import { createActorCacheClient } from './internal/actorCacheClient';
+import { DEFAULT_ACTOR_CACHE_REQUEST } from './internal/actorCacheShared';
 import { GeneralLights } from './sceneSubjects/GeneralLights';
 import { CameraControls } from './sceneSubjects/CameraControls';
 import { RenderQuality } from './sceneSubjects/RenderQuality';
@@ -170,6 +172,15 @@ export class SceneManager {
         this.eventBus.emit('editor:historyState', state);
       }
     });
+    this.actorCacheClient = createActorCacheClient();
+    this.actorCacheState = {
+      jobId: null,
+      status: 'idle',
+      stage: 'idle',
+      progress: 0,
+      error: null,
+      manifestUrl: null
+    };
   }
 
   async init() {
@@ -401,6 +412,9 @@ export class SceneManager {
     busOn('voxel:invertSelectionRequested', () => this.invertVoxelSelection());
     busOn('voxel:selectConnectedRequested', () => this.selectConnectedVoxels());
     busOn('voxel:autoSegmentRequested', (payload) => this.autoSelectActorVoxels(payload));
+    busOn('voxel:preprocessActorRequested', () => {
+      void this.preprocessSelectedVoxelActor();
+    });
     busOn('voxel:extractActorRequested', () => {
       void this.extractSelectedVoxelActor();
     });
@@ -417,6 +431,7 @@ export class SceneManager {
       this.applySceneViewMode();
     });
     busOn('voxel:requestState', () => this.emitVoxelSelectionState());
+    busOn('voxel:requestActorCacheState', () => this.emitActorCacheState());
     busOn('editor:transformModeRequested', (payload) => this.handleTransformModeRequested(payload));
     busOn('editor:snapSettingsChanged', (settings) => this.applySnapSettings(settings));
     busOn('editor:undoRequested', () => this.undoEditorCommand());
@@ -439,6 +454,18 @@ export class SceneManager {
   handleVoxelEditStateChanged() {
     this.applyEnvironmentVoxelMaskFromEdits();
     this.emitVoxelSelectionState();
+  }
+
+  emitActorCacheState() {
+    this.eventBus.emit('voxel:actorCacheStateChanged', { ...this.actorCacheState });
+  }
+
+  updateActorCacheState(patch = {}) {
+    this.actorCacheState = {
+      ...this.actorCacheState,
+      ...patch
+    };
+    this.emitActorCacheState();
   }
 
   emitVoxelSelectionState() {
@@ -813,11 +840,22 @@ export class SceneManager {
     }
   }
 
-  configureExtractedSplatMesh(mesh, sourceMesh) {
+  configureExtractedSplatMesh(mesh, sourceMesh, sourceTransform = null) {
     mesh.name = `${sourceMesh.name || 'Splat'}::Extracted`;
-    mesh.position.copy(sourceMesh.position);
-    mesh.quaternion.copy(sourceMesh.quaternion);
-    mesh.scale.copy(sourceMesh.scale);
+    if (sourceTransform && Array.isArray(sourceTransform.position) && Array.isArray(sourceTransform.quaternion) && Array.isArray(sourceTransform.scale)) {
+      mesh.position.set(sourceTransform.position[0], sourceTransform.position[1], sourceTransform.position[2]);
+      mesh.quaternion.set(
+        sourceTransform.quaternion[0],
+        sourceTransform.quaternion[1],
+        sourceTransform.quaternion[2],
+        sourceTransform.quaternion[3]
+      );
+      mesh.scale.set(sourceTransform.scale[0], sourceTransform.scale[1], sourceTransform.scale[2]);
+    } else {
+      mesh.position.copy(sourceMesh.position);
+      mesh.quaternion.copy(sourceMesh.quaternion);
+      mesh.scale.copy(sourceMesh.scale);
+    }
     mesh.frustumCulled = false;
     mesh.renderOrder = sourceMesh.renderOrder;
     if ('enableLod' in mesh) mesh.enableLod = false;
@@ -959,6 +997,202 @@ export class SceneManager {
     throw new Error('Unable to clone source splat and no valid source asset could be reloaded.');
   }
 
+  buildActorCacheRequest(environment, voxelData, selectedKeys, extractionKeys) {
+    const source = this.buildExtractionSourceQueue(environment?.splatSource ?? null)[0] ?? null;
+    if (!source) {
+      throw new Error('No source splat asset is available for actor preprocessing.');
+    }
+
+    const request = {
+      selectedKeys: Array.from(selectedKeys),
+      extractionKeys: Array.from(extractionKeys),
+      selectionCount: selectedKeys.size,
+      voxelData: {
+        resolution: voxelData.resolution,
+        origin: voxelData.origin
+      },
+      sourceTransform: toTransformSnapshot(environment.splatMesh),
+      overlap: {
+        overlapScale: DEFAULT_ACTOR_CACHE_REQUEST.overlapScale,
+        maxVoxelRadius: DEFAULT_ACTOR_CACHE_REQUEST.maxVoxelRadius
+      },
+      rigPreset: DEFAULT_ACTOR_CACHE_REQUEST.rigPreset,
+      defaultClip: 'walk'
+    };
+
+    if (source.type === 'file') {
+      request.sourceName = source.file?.name || 'actor-source.spz';
+      return { request, sourceFile: source.file };
+    }
+    request.sourceUrl = source.url;
+    request.sourceName = parseLoadedName(source.url)?.name ?? source.url.split('/').pop() ?? 'actor-source.spz';
+    return { request, sourceFile: null };
+  }
+
+  async finalizeExtractedActor({
+    environment,
+    voxelData,
+    extractionKeys,
+    subsetData,
+    extractedMesh,
+    extractedSplatCount = 0,
+    actorCacheData = null,
+    actorMaskBoxes = null,
+    statusMessage = ''
+  }) {
+    const actor = new VoxelSplatActor({
+      name: `Extracted ${environment.splatMesh.name || 'Actor'}`,
+      owner: `extract-${Date.now()}`,
+      splatMesh: extractedMesh,
+      voxelData: subsetData,
+      actorCacheData,
+      initialClipIndex: 1,
+      initialPoseMode: this.actorPoseModeRequested
+    });
+    await actor.init(this.context);
+    if (actorMaskBoxes) {
+      this.applyManagedWorldMask(actor.splatMesh, actorMaskBoxes);
+    } else {
+      this.clearManagedWorldMask(actor.splatMesh);
+    }
+    this.entities.push(actor);
+    actor.setProxyVisible(this.viewMode !== 'splats-only' && this.showProxyRequested);
+
+    const environmentHiddenKeys = new Set([
+      ...Array.from(this.voxelEditState.getDeletedKeys()),
+      ...Array.from(extractionKeys)
+    ]);
+    const environmentMaskBoxes = mergeVoxelKeysToBoxes(
+      environmentHiddenKeys,
+      voxelData.resolution,
+      voxelData.origin
+    );
+    this.applyManagedWorldMask(environment.splatMesh, environmentMaskBoxes);
+
+    environment.removeProxy?.();
+    this.syncVoxelEditData();
+
+    this.eventBus.emit('hierarchyChanged');
+    this.eventBus.emit('environment:voxelEditMode', false);
+    this.eventBus.emit('editor:objectEditMode', true);
+    this.eventBus.emit('controls:mode', 'object-edit');
+    this.eventBus.emit('selectionChanged', {
+      target: 'object',
+      uuids: actor.root?.uuid ? [actor.root.uuid] : [],
+      object: actor.root ?? null,
+      frameObject: actor.focusFrameObject ?? actor.splatMesh ?? actor.root ?? null
+    });
+    this.eventBus.emit('selection:focusRequested');
+
+    this.setStatus(
+      statusMessage || `Extracted actor created (${subsetData.activeCount.toLocaleString()} voxels, ${Math.max(0, extractedSplatCount).toLocaleString()} splats) in ${this.actorPoseModeRequested === 't-pose' ? 'T-pose' : 'walk-cycle'} mode.`,
+      'success'
+    );
+    return actor;
+  }
+
+  async preprocessSelectedVoxelActor() {
+    this.syncVoxelEditData();
+    const environment = this.findEnvironmentEntity();
+    const voxelData = this.voxelEditState.getVoxelData();
+    if (!environment?.splatMesh || !voxelData || environment?.proxyKind !== 'voxel') {
+      this.setStatus('Generate a voxel proxy before preprocessing an actor.', 'warning');
+      return;
+    }
+
+    const selectedKeys = this.getSelectedVoxelKeys(voxelData);
+    if (selectedKeys.size < 1) {
+      this.setStatus('Select voxels before preprocessing an actor.', 'warning');
+      return;
+    }
+
+    const extractionKeys = this.expandSelectedVoxelKeys(voxelData, selectedKeys, {
+      radius: DEFAULT_ACTOR_CACHE_REQUEST.selectionExpansionRadius,
+      maxScale: DEFAULT_ACTOR_CACHE_REQUEST.selectionExpansionMaxScale
+    });
+    const subsetData = this.buildVoxelSubsetData(voxelData, extractionKeys);
+    if (!subsetData || subsetData.activeCount < 1) {
+      this.setStatus('Selected voxels could not be prepared for actor preprocessing.', 'error');
+      return;
+    }
+
+    let extractedMesh = null;
+    try {
+      const { request, sourceFile } = this.buildActorCacheRequest(environment, voxelData, selectedKeys, extractionKeys);
+      this.updateActorCacheState({
+        jobId: null,
+        status: 'queued',
+        stage: 'submit',
+        progress: 0.01,
+        error: null,
+        manifestUrl: null
+      });
+      this.setStatus('Submitting actor preprocess job to local cache server...', 'info');
+
+      const submitted = await this.actorCacheClient.submitJob(request, sourceFile);
+      this.updateActorCacheState(submitted ?? {});
+
+      const finalState = submitted?.status === 'done'
+        ? submitted
+        : await this.actorCacheClient.waitForJob(submitted?.jobId, {
+          onUpdate: (state) => this.updateActorCacheState(state ?? {})
+        });
+
+      if (!finalState || finalState.status === 'error') {
+        throw new Error(finalState?.error || 'Actor preprocess job failed.');
+      }
+      if (!finalState.manifestUrl) {
+        throw new Error('Actor preprocess completed without a manifest URL.');
+      }
+
+      this.updateActorCacheState({ stage: 'load-artifacts', progress: 0.94 });
+      const manifest = await this.actorCacheClient.fetchManifest(finalState.manifestUrl);
+      const bindingArrays = await this.actorCacheClient.fetchBindingArrays(manifest);
+      extractedMesh = await loadSplatFromUrl({
+        url: manifest.actorSpzUrl,
+        scene: this.scene,
+        sparkModule: this.sparkModule,
+        previousMesh: null
+      });
+      this.configureExtractedSplatMesh(extractedMesh, environment.splatMesh, manifest.sourceTransform);
+      if (!this.isRenderableSplatMesh(extractedMesh)) {
+        throw new Error('Cached actor splat failed to load.');
+      }
+
+      await this.finalizeExtractedActor({
+        environment,
+        voxelData,
+        extractionKeys,
+        subsetData,
+        extractedMesh,
+        extractedSplatCount: manifest.actorSplatCount,
+        actorCacheData: {
+          manifest,
+          bindingArrays
+        },
+        statusMessage: `Preprocessed actor loaded (${subsetData.activeCount.toLocaleString()} voxels, ${Math.max(0, manifest.actorSplatCount).toLocaleString()} splats) with cached rig + bindings.`
+      });
+      this.updateActorCacheState({
+        status: 'done',
+        stage: 'done',
+        progress: 1,
+        error: null,
+        manifestUrl: finalState.manifestUrl
+      });
+    } catch (error) {
+      extractedMesh?.removeFromParent?.();
+      extractedMesh?.dispose?.();
+      const message = error instanceof Error ? error.message : String(error);
+      this.updateActorCacheState({
+        status: 'error',
+        stage: 'error',
+        progress: 1,
+        error: message
+      });
+      this.setStatus(`Actor preprocess unavailable: ${message}`, 'warning');
+    }
+  }
+
   async extractSelectedVoxelActor() {
     this.syncVoxelEditData();
     const environment = this.findEnvironmentEntity();
@@ -1032,53 +1266,15 @@ export class SceneManager {
         actorMaskBoxes = mergeVoxelKeysToBoxes(nonSelectedKeys, voxelData.resolution, voxelData.origin);
       }
 
-      const actor = new VoxelSplatActor({
-        name: `Extracted ${environment.splatMesh.name || 'Actor'}`,
-        owner: `extract-${Date.now()}`,
-        splatMesh: extractedMesh,
-        voxelData: subsetData,
-        initialClipIndex: 1,
-        initialPoseMode: this.actorPoseModeRequested
+      await this.finalizeExtractedActor({
+        environment,
+        voxelData,
+        extractionKeys,
+        subsetData,
+        extractedMesh,
+        extractedSplatCount,
+        actorMaskBoxes
       });
-      await actor.init(this.context);
-      if (actorMaskBoxes) {
-        this.applyManagedWorldMask(actor.splatMesh, actorMaskBoxes);
-      } else {
-        this.clearManagedWorldMask(actor.splatMesh);
-      }
-      this.entities.push(actor);
-      actor.setProxyVisible(this.viewMode !== 'splats-only' && this.showProxyRequested);
-
-      const environmentHiddenKeys = new Set([
-        ...Array.from(this.voxelEditState.getDeletedKeys()),
-        ...Array.from(extractionKeys)
-      ]);
-      const environmentMaskBoxes = mergeVoxelKeysToBoxes(
-        environmentHiddenKeys,
-        voxelData.resolution,
-        voxelData.origin
-      );
-      this.applyManagedWorldMask(environment.splatMesh, environmentMaskBoxes);
-
-      environment.removeProxy?.();
-      this.syncVoxelEditData();
-
-      this.eventBus.emit('hierarchyChanged');
-      this.eventBus.emit('environment:voxelEditMode', false);
-      this.eventBus.emit('editor:objectEditMode', true);
-      this.eventBus.emit('controls:mode', 'object-edit');
-      this.eventBus.emit('selectionChanged', {
-        target: 'object',
-        uuids: actor.root?.uuid ? [actor.root.uuid] : [],
-        object: actor.root ?? null,
-        frameObject: actor.focusFrameObject ?? actor.splatMesh ?? actor.root ?? null
-      });
-      this.eventBus.emit('selection:focusRequested');
-
-      this.setStatus(
-        `Extracted actor created (${subsetData.activeCount.toLocaleString()} voxels, ${Math.max(0, extractedSplatCount).toLocaleString()} splats) in ${this.actorPoseModeRequested === 't-pose' ? 'T-pose' : 'walk-cycle'} mode.`,
-        'success'
-      );
     } catch (error) {
       extractedMesh?.removeFromParent?.();
       extractedMesh?.dispose?.();

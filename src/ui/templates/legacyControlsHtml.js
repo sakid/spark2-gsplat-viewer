@@ -333,6 +333,8 @@ export const LEGACY_CONTROLS_HTML = `
           <option value="walk" selected>Walk cycle</option>
           <option value="t-pose">T-pose (bind pose)</option>
         </select>
+        <span id="voxel-actor-cache-status">Preprocess: local cache idle</span>
+        <button id="voxel-preprocess-actor-btn" type="button">Preprocess Actor</button>
         <button id="voxel-extract-actor-btn" type="button">Extract actor + walk cycle</button>
       </div>
     </div>

@@ -23,6 +23,7 @@ export class ExternalProxyRuntime {
     this.boneMarkers = [];
     this.meshVisible = true;
     this.bonesVisible = false;
+    this.bindingArrays = null;
   }
 
   async load(file, splatMesh) {
@@ -167,19 +168,31 @@ export class ExternalProxyRuntime {
     this.applyCollisionMode(next);
   }
 
-  setDeformEnabled(enabled, splatMesh) {
+  setDeformEnabled(enabled, splatMesh, options = {}) {
     this.deformEnabled = Boolean(enabled);
+    if (Object.prototype.hasOwnProperty.call(options, 'bindingArrays')) {
+      this.bindingArrays = options.bindingArrays ?? null;
+    }
     this.deformer.setEnabled(this.deformEnabled);
     if (!this.deformEnabled) this.deformer.dispose();
-    else this.rebindDeformer(splatMesh);
+    else this.rebindDeformer(splatMesh, options);
   }
 
-  rebindDeformer(splatMesh) {
+  rebindDeformer(splatMesh, options = {}) {
     this.deformTarget = splatMesh ?? null;
+    if (Object.prototype.hasOwnProperty.call(options, 'bindingArrays')) {
+      this.bindingArrays = options.bindingArrays ?? null;
+    }
     this.deformer.setEnabled(this.deformEnabled);
     this.container?.updateMatrixWorld?.(true);
     const bones = this.asset?.skinnedMeshes?.[0]?.skeleton?.bones ?? null;
-    const result = this.deformer.bind({ sparkModule: this.context.sparkModule, splatMesh, bones, animatedRoot: this.animationDriver ?? this.animatedRoot });
+    const result = this.deformer.bind({
+      sparkModule: this.context.sparkModule,
+      splatMesh,
+      bones,
+      animatedRoot: this.animationDriver ?? this.animatedRoot,
+      precomputedBindings: this.bindingArrays
+    });
     if (!result || result.mode === 'off') {
       if (this.deformEnabled) this.context.setStatus(`Proxy deformation disabled: ${result?.reason || 'unknown reason'}`, 'warning');
       return false;
@@ -254,6 +267,7 @@ export class ExternalProxyRuntime {
     this.animatedRoot = null;
     this.animationDriver = null;
     this.deformTarget = null;
+    this.bindingArrays = null;
     this.staticColliders = [];
     this.boneColliderSet = null;
     this.asset = null;

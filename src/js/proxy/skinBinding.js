@@ -3,12 +3,14 @@ import * as THREE from 'three';
 const tempCenter = new THREE.Vector3();
 const tempNearestIndices = [0, 0, 0, 0];
 const tempNearestDistSq = [Infinity, Infinity, Infinity, Infinity];
+const tempIndexVector = new THREE.Vector4();
+const tempWeightVector = new THREE.Vector4();
 
 function captureBonePositions(bones) {
   return bones.map((bone) => bone.getWorldPosition(new THREE.Vector3()));
 }
 
-function nearestBoneWeights(center, bonePositions) {
+export function nearestBoneWeights(center, bonePositions) {
   tempNearestIndices[0] = 0;
   tempNearestIndices[1] = 0;
   tempNearestIndices[2] = 0;
@@ -50,8 +52,54 @@ function nearestBoneWeights(center, bonePositions) {
   };
 }
 
+export function computeSplatBoneBindingArrays(worldCenters, bones) {
+  const bonePositions = Array.isArray(bones) ? captureBonePositions(bones) : [];
+  const count = Math.max(0, Math.floor((worldCenters?.length ?? 0) / 3));
+  const indices = new Uint16Array(count * 4);
+  const weights = new Float32Array(count * 4);
+
+  for (let index = 0; index < count; index += 1) {
+    const offset = index * 3;
+    tempCenter.set(worldCenters[offset], worldCenters[offset + 1], worldCenters[offset + 2]);
+    const binding = nearestBoneWeights(tempCenter, bonePositions);
+    const bindingOffset = index * 4;
+    indices[bindingOffset] = binding.indices.x;
+    indices[bindingOffset + 1] = binding.indices.y;
+    indices[bindingOffset + 2] = binding.indices.z;
+    indices[bindingOffset + 3] = binding.indices.w;
+    weights[bindingOffset] = binding.weights.x;
+    weights[bindingOffset + 1] = binding.weights.y;
+    weights[bindingOffset + 2] = binding.weights.z;
+    weights[bindingOffset + 3] = binding.weights.w;
+  }
+
+  return { indices, weights };
+}
+
+export function applyPrecomputedSplatBoneBindings({ skinning, bindingArrays }) {
+  const indices = bindingArrays?.indices;
+  const weights = bindingArrays?.weights;
+  if (!(indices instanceof Uint16Array) || !(weights instanceof Float32Array)) {
+    return 0;
+  }
+
+  const count = Math.min(Math.floor(indices.length / 4), Math.floor(weights.length / 4));
+  for (let index = 0; index < count; index += 1) {
+    const offset = index * 4;
+    tempIndexVector.set(indices[offset], indices[offset + 1], indices[offset + 2], indices[offset + 3]);
+    tempWeightVector.set(weights[offset], weights[offset + 1], weights[offset + 2], weights[offset + 3]);
+    skinning.setSplatBones(index, tempIndexVector, tempWeightVector);
+  }
+
+  return count;
+}
+
 // NEW PROXY ANIMATION
-export function bindSplatToBones({ splatMesh, skinning, bones }) {
+export function bindSplatToBones({ splatMesh, skinning, bones, bindingArrays = null }) {
+  if (bindingArrays) {
+    return applyPrecomputedSplatBoneBindings({ skinning, bindingArrays });
+  }
+
   if (!splatMesh || typeof splatMesh.forEachSplat !== 'function') {
     return 0;
   }

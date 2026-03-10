@@ -3,17 +3,18 @@ import { VoxelAutoRigRuntime } from '../internal/voxelAutoRigRuntime';
 import { ExternalProxyRuntime } from '../internal/externalProxyRuntime';
 import { computeProxyAlignment } from '../internal/proxyAlign';
 import { fitHumanoidRigToVoxelData } from '../internal/voxelPoseFitter';
+import {
+  applyAlignment,
+  applyBoneLocalTransforms,
+  getStandardHumanoidRigFile
+} from '../internal/standardHumanoidRig';
 
 const finiteNumber = (value, fallback = 0) => {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
 };
 
-const STANDARD_HUMANOID_RIG_URL = 'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/Xbot.glb';
-const FALLBACK_HUMANOID_RIG_URL = '/assets/proxies/sean_proxy_animated.glb';
-const STANDARD_RIG_FETCH_TIMEOUT_MS = 15000;
 const DEFAULT_POSE_MODE = 'walk';
-let standardHumanoidRigFilePromise = null;
 
 function selectWalkClipIndex(clipNames, fallback = 0) {
   const names = Array.isArray(clipNames) ? clipNames : [];
@@ -26,47 +27,13 @@ function normalizePoseMode(mode) {
   return mode === 't-pose' ? 't-pose' : DEFAULT_POSE_MODE;
 }
 
-async function getStandardHumanoidRigFile() {
-  if (!standardHumanoidRigFilePromise) {
-    standardHumanoidRigFilePromise = (async () => {
-      try {
-        return await fetchAssetAsFileWithTimeout(STANDARD_HUMANOID_RIG_URL, 'Xbot.glb');
-      } catch {
-        return fetchAssetAsFileWithTimeout(FALLBACK_HUMANOID_RIG_URL, 'sean_proxy_animated.glb', 8000);
-      }
-    })();
-  }
-
-  try {
-    return await standardHumanoidRigFilePromise;
-  } catch (error) {
-    standardHumanoidRigFilePromise = null;
-    throw error;
-  }
-}
-
-async function fetchAssetAsFileWithTimeout(url, fallbackName, timeoutMs = STANDARD_RIG_FETCH_TIMEOUT_MS) {
-  const abort = new AbortController();
-  const timer = setTimeout(() => abort.abort(new Error('timeout')), timeoutMs);
-  try {
-    const response = await fetch(url, { signal: abort.signal });
-    if (!response.ok) {
-      throw new Error(`Asset fetch failed: ${response.status}`);
-    }
-    const blob = await response.blob();
-    const rawName = String(url || '').split('/').pop() || fallbackName || 'asset.bin';
-    return new File([blob], rawName, { type: blob.type || 'application/octet-stream' });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 export class VoxelSplatActor {
   constructor({
     name = 'Extracted Actor',
     owner,
     splatMesh,
     voxelData,
+    actorCacheData = null,
     initialClipIndex = 1,
     initialPoseMode = DEFAULT_POSE_MODE
   } = {}) {
@@ -74,6 +41,7 @@ export class VoxelSplatActor {
     this.owner = owner || `extracted-${Date.now()}`;
     this.splatMesh = splatMesh ?? null;
     this.voxelData = voxelData ?? null;
+    this.actorCacheData = actorCacheData ?? null;
     this.initialClipIndex = Math.max(0, Math.floor(finiteNumber(initialClipIndex, 1)));
     this.context = null;
     this.voxelRuntime = null;
@@ -363,16 +331,21 @@ export class VoxelSplatActor {
     };
 
     const bones = external.asset?.skinnedMeshes?.[0]?.skeleton?.bones ?? [];
-    const alignment = computeProxyAlignment(this.splatMesh, root, {
-      profile: 'character',
-      preferUpright: true,
-      anchorNode: this.findAlignmentAnchorNode(bones),
-      anchorBlend: 0.85
-    });
-    root.quaternion.multiply(alignment.quaternion);
-    root.scale.multiplyScalar(alignment.scale);
-    root.position.add(alignment.offset);
-    root.updateMatrixWorld(true);
+    const cachedAlignment = this.actorCacheData?.manifest?.alignment ?? null;
+    if (cachedAlignment) {
+      applyAlignment(root, cachedAlignment);
+    } else {
+      const alignment = computeProxyAlignment(this.splatMesh, root, {
+        profile: 'character',
+        preferUpright: true,
+        anchorNode: this.findAlignmentAnchorNode(bones),
+        anchorBlend: 0.85
+      });
+      root.quaternion.multiply(alignment.quaternion);
+      root.scale.multiplyScalar(alignment.scale);
+      root.position.add(alignment.offset);
+      root.updateMatrixWorld(true);
+    }
 
     if (typeof root.attach === 'function') {
       root.attach(this.splatMesh);
@@ -382,25 +355,51 @@ export class VoxelSplatActor {
     }
     this.splatMesh.updateMatrixWorld(true);
 
-    this.poseFitMetrics = fitHumanoidRigToVoxelData({
-      voxelData: this.voxelData,
-      bones,
-      stiffness: 0.92
-    });
-    if (this.poseFitMetrics?.applied) {
+    const cachedBoneTransforms = this.actorCacheData?.manifest?.boneLocalTransforms ?? null;
+    if (Array.isArray(cachedBoneTransforms) && cachedBoneTransforms.length > 0) {
+      const appliedCount = applyBoneLocalTransforms(bones, cachedBoneTransforms);
       root.updateMatrixWorld(true);
-      context.setStatus(
-        `Pose fit applied from voxel landmarks (${this.poseFitMetrics.appliedCount} joints, ${(this.poseFitMetrics.coverage * 100).toFixed(0)}% coverage).`,
-        'success'
-      );
+      this.poseFitMetrics = {
+        applied: appliedCount > 0,
+        reason: appliedCount > 0 ? '' : 'cache-empty',
+        appliedCount,
+        coverage: bones.length > 0 ? Math.min(1, appliedCount / bones.length) : 0,
+        meanError: 0,
+        sampleCount: 0,
+        landmarks: null,
+        cached: true
+      };
+      if (appliedCount > 0) {
+        context.setStatus(`Pose fit loaded from actor cache (${appliedCount} bone transforms).`, 'success');
+      }
+    } else {
+      this.poseFitMetrics = fitHumanoidRigToVoxelData({
+        voxelData: this.voxelData,
+        bones,
+        stiffness: 0.92
+      });
+      if (this.poseFitMetrics?.applied) {
+        root.updateMatrixWorld(true);
+        context.setStatus(
+          `Pose fit applied from voxel landmarks (${this.poseFitMetrics.appliedCount} joints, ${(this.poseFitMetrics.coverage * 100).toFixed(0)}% coverage).`,
+          'success'
+        );
+      }
     }
 
     external.setCollisionMode('off');
-    external.setDeformEnabled(true, this.splatMesh);
-    external.rebindDeformer(this.splatMesh);
+    external.setDeformEnabled(true, this.splatMesh, {
+      bindingArrays: this.actorCacheData?.bindingArrays ?? null
+    });
+    external.rebindDeformer(this.splatMesh, {
+      bindingArrays: this.actorCacheData?.bindingArrays ?? null
+    });
 
     const clipNames = Array.isArray(external.clipNames) ? external.clipNames : [];
-    this.activeClipIndex = selectWalkClipIndex(clipNames, this.initialClipIndex);
+    const cachedClip = this.actorCacheData?.manifest?.defaultClip ?? '';
+    this.activeClipIndex = cachedClip
+      ? selectWalkClipIndex(clipNames, clipNames.findIndex((name) => name === cachedClip))
+      : selectWalkClipIndex(clipNames, this.initialClipIndex);
     this.walkSpeed = 1.0;
     external.animator.setSpeed(this.walkSpeed);
     external.animator.playClip(this.activeClipIndex);

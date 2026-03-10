@@ -102,7 +102,9 @@ export function bindUi(eventBus, root = document) {
   const voxelUndoBtn = byId('voxel-undo-btn', root);
   const voxelSelectConnectedBtn = byId('voxel-select-connected-btn', root);
   const voxelInvertSelectionBtn = byId('voxel-invert-selection-btn', root);
+  const voxelPreprocessActorBtn = byId('voxel-preprocess-actor-btn', root);
   const voxelExtractActorBtn = byId('voxel-extract-actor-btn', root);
+  const voxelActorCacheStatus = byId('voxel-actor-cache-status', root);
   const voxelActorPoseMode = byId('voxel-actor-pose-mode', root);
   const voxelAutoSegmentBtn = byId('voxel-auto-segment-btn', root);
   const voxelSegColorThreshold = byId('voxel-seg-color-threshold', root);
@@ -170,6 +172,7 @@ export function bindUi(eventBus, root = document) {
   let proxyKind = 'none';
   let currentMode = 'view';
   let voxelSelectionState = { selectedCount: 0, canUndo: false };
+  let actorCacheState = { status: 'idle', stage: 'idle', progress: 0, error: null, manifestUrl: null };
   const initialLoadedText = String(splatLoadedName?.textContent ?? '')
     .replace(/^Loaded:\s*/i, '')
     .trim()
@@ -286,6 +289,30 @@ export function bindUi(eventBus, root = document) {
     syncViewingInputs();
   };
 
+  const applyActorCacheState = (state = {}) => {
+    actorCacheState = {
+      status: typeof state?.status === 'string' ? state.status : 'idle',
+      stage: typeof state?.stage === 'string' ? state.stage : 'idle',
+      progress: Math.max(0, Math.min(1, asFiniteNumber(state?.progress, 0))),
+      error: typeof state?.error === 'string' ? state.error : null,
+      manifestUrl: typeof state?.manifestUrl === 'string' ? state.manifestUrl : null
+    };
+    if (voxelActorCacheStatus) {
+      if (actorCacheState.status === 'error') {
+        voxelActorCacheStatus.textContent = `Preprocess: ${actorCacheState.error || 'error'}`;
+      } else if (actorCacheState.status === 'done') {
+        voxelActorCacheStatus.textContent = actorCacheState.stage === 'cached'
+          ? 'Preprocess: cache hit ready'
+          : 'Preprocess: baked actor ready';
+      } else if (actorCacheState.status === 'running' || actorCacheState.status === 'queued') {
+        voxelActorCacheStatus.textContent = `Preprocess: ${actorCacheState.stage} ${Math.round(actorCacheState.progress * 100)}%`;
+      } else {
+        voxelActorCacheStatus.textContent = 'Preprocess: local cache idle';
+      }
+    }
+    syncViewingInputs();
+  };
+
   const syncWorkflowSummary = () => {
     if (!workflowSummary) return;
     if (proxyKind === 'voxel') {
@@ -379,6 +406,10 @@ export function bindUi(eventBus, root = document) {
     if (voxelUndoBtn) voxelUndoBtn.disabled = !voxelEditActive || !voxelSelectionState.canUndo;
     if (voxelSelectConnectedBtn) voxelSelectConnectedBtn.disabled = !voxelEditActive || voxelSelectionState.selectedCount !== 1;
     if (voxelInvertSelectionBtn) voxelInvertSelectionBtn.disabled = !voxelEditActive;
+    if (voxelPreprocessActorBtn) {
+      const running = actorCacheState.status === 'queued' || actorCacheState.status === 'running';
+      voxelPreprocessActorBtn.disabled = !voxelEditActive || voxelSelectionState.selectedCount < 1 || running;
+    }
     if (voxelExtractActorBtn) voxelExtractActorBtn.disabled = !voxelEditActive || voxelSelectionState.selectedCount < 1;
     if (voxelActorPoseMode) voxelActorPoseMode.disabled = !voxelEditActive;
     if (voxelAutoSegmentBtn) voxelAutoSegmentBtn.disabled = !voxelEditActive;
@@ -427,6 +458,9 @@ export function bindUi(eventBus, root = document) {
   const unsubscribeVoxelSelectionState = eventBus.on('voxel:selectionChanged', (state) => {
     applyVoxelSelectionState(state ?? {});
   });
+  const unsubscribeActorCacheState = eventBus.on('voxel:actorCacheStateChanged', (state) => {
+    applyActorCacheState(state ?? {});
+  });
   disposers.push(unsubscribeProxyKind);
   disposers.push(unsubscribeSplatLoaded);
   disposers.push(unsubscribeSheepAlignState);
@@ -434,11 +468,14 @@ export function bindUi(eventBus, root = document) {
   disposers.push(unsubscribeHistoryState);
   disposers.push(unsubscribeGameplayLevelState);
   disposers.push(unsubscribeVoxelSelectionState);
+  disposers.push(unsubscribeActorCacheState);
+  applyActorCacheState(actorCacheState);
   eventBus.emit('environment:requestProxyKind');
   eventBus.emit('environment:requestSheepAlignState');
   eventBus.emit('environment:requestSheepCropState');
   eventBus.emit('gameplay:requestLevelState');
   eventBus.emit('voxel:requestState');
+  eventBus.emit('voxel:requestActorCacheState');
 
   on(loadButton, 'click', () => {
     const file = splatInput?.files?.[0] ?? null;
@@ -490,6 +527,7 @@ export function bindUi(eventBus, root = document) {
   }), disposers);
   on(voxelSelectConnectedBtn, 'click', () => eventBus.emit('voxel:selectConnectedRequested'), disposers);
   on(voxelInvertSelectionBtn, 'click', () => eventBus.emit('voxel:invertSelectionRequested'), disposers);
+  on(voxelPreprocessActorBtn, 'click', () => eventBus.emit('voxel:preprocessActorRequested'), disposers);
   on(voxelExtractActorBtn, 'click', () => eventBus.emit('voxel:extractActorRequested'), disposers);
   on(voxelActorPoseMode, 'change', () => eventBus.emit('voxel:actorPoseModeRequested', {
     mode: voxelActorPoseMode?.value === 't-pose' ? 't-pose' : 'walk'

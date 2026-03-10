@@ -7,6 +7,7 @@ class FakeElement {
   checked = false;
   disabled = false;
   textContent = '';
+  style = { display: '' };
   files: Array<{ name: string }> = [];
   listeners = new Map<string, Set<(event?: { type: string; target: FakeElement }) => void>>();
 
@@ -435,6 +436,82 @@ describe('uiBindings workflow controls', () => {
     poseMode.value = 'walk';
     poseMode.dispatch('change');
     expect(poseSpy).toHaveBeenCalledWith({ mode: 'walk' });
+
+    dispose();
+  });
+
+  test('drives explicit actor preprocess controls and state', () => {
+    const ids = new Map<string, FakeElement>([
+      ['file-input', new FakeElement()],
+      ['splat-loaded-name', new FakeElement()],
+      ['load-btn', new FakeElement()],
+      ['clear-btn', new FakeElement()],
+      ['run-voxel-workflow-btn', new FakeElement()],
+      ['workflow-summary', new FakeElement()],
+      ['proxy-file-input', new FakeElement()],
+      ['realign-proxy-btn', new FakeElement()],
+      ['proxy-flip-updown', new FakeElement()],
+      ['proxy-mirror-x', new FakeElement()],
+      ['proxy-mirror-z', new FakeElement()],
+      ['proxy-align-profile', new FakeElement()],
+      ['generate-voxel-btn', new FakeElement()],
+      ['regenerate-voxel-rig-btn', new FakeElement()],
+      ['export-voxel-glb-btn', new FakeElement()],
+      ['object-edit-mode', new FakeElement()],
+      ['gameplay-level-enabled', new FakeElement()],
+      ['sheep-gizmo-enabled', new FakeElement()],
+      ['voxel-edit-mode', new FakeElement()],
+      ['voxel-edit-controls', new FakeElement()],
+      ['voxel-selection-count', new FakeElement()],
+      ['voxel-preprocess-actor-btn', new FakeElement()],
+      ['voxel-actor-cache-status', new FakeElement()],
+      ['voxel-extract-actor-btn', new FakeElement()],
+      ['voxel-actor-pose-mode', new FakeElement()],
+      ['voxel-delete-btn', new FakeElement()],
+      ['voxel-undo-btn', new FakeElement()],
+      ['voxel-select-connected-btn', new FakeElement()],
+      ['voxel-invert-selection-btn', new FakeElement()],
+      ['voxel-auto-segment-btn', new FakeElement()],
+      ['voxel-seg-color-threshold', new FakeElement()],
+      ['voxel-seg-min-count', new FakeElement()],
+      ['view-mode', new FakeElement()],
+      ['show-proxy-mesh', new FakeElement()],
+      ['show-proxy-bones', new FakeElement()],
+      ['show-light-helpers', new FakeElement()],
+      ['show-light-gizmos', new FakeElement()],
+      ['show-lighting-probes', new FakeElement()],
+      ['collision-enabled', new FakeElement()]
+    ]);
+
+    (ids.get('splat-loaded-name') as FakeElement).textContent = 'Loaded: actor.spz';
+    (ids.get('view-mode') as FakeElement).value = 'full';
+
+    const eventBus = createEventBus();
+    const preprocessSpy = vi.fn();
+    eventBus.on('voxel:preprocessActorRequested', preprocessSpy);
+
+    const dispose = bindUi(eventBus, rootWith(ids) as any);
+
+    eventBus.emit('environment:proxyKind', 'voxel');
+    const voxelEditMode = ids.get('voxel-edit-mode') as FakeElement;
+    voxelEditMode.checked = true;
+    voxelEditMode.dispatch('change');
+    eventBus.emit('voxel:selectionChanged', { selectedCount: 5, canUndo: false });
+
+    const preprocessBtn = ids.get('voxel-preprocess-actor-btn') as FakeElement;
+    const status = ids.get('voxel-actor-cache-status') as FakeElement;
+    expect(preprocessBtn.disabled).toBe(false);
+    expect(status.textContent).toContain('idle');
+
+    preprocessBtn.dispatch('click');
+    expect(preprocessSpy).toHaveBeenCalledTimes(1);
+
+    eventBus.emit('voxel:actorCacheStateChanged', { status: 'running', stage: 'select-splats', progress: 0.5 });
+    expect(status.textContent).toContain('50');
+    expect(preprocessBtn.disabled).toBe(true);
+
+    eventBus.emit('voxel:actorCacheStateChanged', { status: 'done', stage: 'done', progress: 1, manifestUrl: '/artifacts/job/manifest.json' });
+    expect(status.textContent).toContain('ready');
 
     dispose();
   });

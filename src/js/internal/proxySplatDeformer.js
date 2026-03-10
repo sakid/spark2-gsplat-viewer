@@ -29,7 +29,7 @@ export class ProxySplatDeformer {
     this.splatMesh.covSplats = true;
     this.splatMesh.updateGenerator?.();
   }
-  bind({ sparkModule, splatMesh, bones, animatedRoot }) {
+  bind({ sparkModule, splatMesh, bones, animatedRoot, precomputedBindings = null }) {
     this.dispose();
     this.splatMesh = splatMesh ?? null;
     this.bones = Array.isArray(bones) ? bones : null;
@@ -50,7 +50,12 @@ export class ProxySplatDeformer {
       if (this.bones?.length) {
         this.ensureCovSplats();
         this.skinning = new sparkModule.SplatSkinning({ mesh: this.splatMesh, numBones: this.bones.length, mode: linearBlend });
-        bindSplatToBones({ splatMesh: this.splatMesh, skinning: this.skinning, bones: this.bones });
+        bindSplatToBones({
+          splatMesh: this.splatMesh,
+          skinning: this.skinning,
+          bones: this.bones,
+          bindingArrays: precomputedBindings
+        });
         if (this.skinning.skinTexture) this.skinning.skinTexture.needsUpdate = true;
         for (let i = 0; i < this.bones.length; i += 1) {
           this.bones[i].updateMatrixWorld(true);

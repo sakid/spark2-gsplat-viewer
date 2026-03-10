@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { ProxySplatDeformer } from '../src/js/internal/proxySplatDeformer';
 
 class MockSkinning {
@@ -78,5 +78,30 @@ describe('proxy splat deformer', () => {
     expect(bound.mode).toBe('transform');
     deformer.update();
     expect(deformer.skinning.updated).toBe(1);
+  });
+
+  test('binds cached skinning arrays without walking mesh splats', () => {
+    const deformer = new ProxySplatDeformer();
+    const sparkModule = { NewSplatAccumulator: { prototype: { __sparkCovOnlyPatchApplied: true } }, SplatSkinning: MockSkinning, SplatSkinningMode: { LINEAR_BLEND: 'linear_blend' } };
+    const splatMesh = createSplatMesh();
+    splatMesh.forEachSplat = vi.fn(() => {
+      throw new Error('forEachSplat should not run for cached bindings');
+    });
+    const bone = new THREE.Bone();
+    bone.updateMatrixWorld(true);
+
+    const bound = deformer.bind({
+      sparkModule,
+      splatMesh,
+      bones: [bone],
+      precomputedBindings: {
+        indices: new Uint16Array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+        weights: new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0])
+      }
+    });
+
+    expect(bound.mode).toBe('skinned');
+    expect(splatMesh.forEachSplat).not.toHaveBeenCalled();
+    expect(deformer.skinning.splatBones).toBe(3);
   });
 });
