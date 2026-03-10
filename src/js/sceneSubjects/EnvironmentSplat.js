@@ -87,6 +87,7 @@ export class EnvironmentSplat {
     this.showProxyRequested = true;
     this.showProxyBonesRequested = false;
     this.viewMode = 'full';
+    this.actorIsolationActive = false;
     this.splatSource = null;
     this.sheepAlign = {
       x: 0,
@@ -954,6 +955,15 @@ export class EnvironmentSplat {
   applyViewSettings() {
     this.applyProxyVisibility();
     this.applyBoneVisibility();
+    if (this.splatMesh) {
+      this.splatMesh.visible = !this.actorIsolationActive;
+    }
+    this.cropTool?.setHelperVisible(this.sheepCropShowBox && !this.isSplatsOnlyView() && !this.actorIsolationActive);
+  }
+
+  applySceneRenderState({ isolateActors } = {}) {
+    this.actorIsolationActive = Boolean(isolateActors);
+    this.applyViewSettings();
   }
 
   getSplatTransformParent() {

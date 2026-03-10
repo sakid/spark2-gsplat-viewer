@@ -10,6 +10,7 @@ export class ButterflySplat {
   constructor() {
     this.unsubscribers = [];
     this.boundSplats = 0;
+    this.actorIsolationActive = false;
   }
 
   async init(context) {
@@ -65,6 +66,15 @@ export class ButterflySplat {
     }
   }
 
+  applyVisibility() {
+    if (this.splatMesh) {
+      this.splatMesh.visible = !this.actorIsolationActive;
+    }
+    if (this.rig?.root) {
+      this.rig.root.visible = false;
+    }
+  }
+
   update(delta) {
     if (!this.rig) return;
     this.rig.update(delta);
@@ -79,6 +89,11 @@ export class ButterflySplat {
       this.skinning.setBoneMatrix(i, this.rig.bones[i].matrixWorld);
     }
     this.skinning.updateBones();
+  }
+
+  applySceneRenderState({ isolateActors } = {}) {
+    this.actorIsolationActive = Boolean(isolateActors);
+    this.applyVisibility();
   }
 
   dispose() {

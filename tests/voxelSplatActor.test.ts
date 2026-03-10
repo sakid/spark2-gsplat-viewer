@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { describe, expect, test, vi } from 'vitest';
 import { VoxelSplatActor } from '../src/js/sceneSubjects/VoxelSplatActor';
 
@@ -108,5 +109,53 @@ describe('VoxelSplatActor', () => {
     expect(first?.max.x).toBeCloseTo(2);
     expect(first?.max.y).toBeCloseTo(3.5);
     expect(first?.max.z).toBeCloseTo(4);
+  });
+
+  test('getFocusBoundingBox applies the actor splat world transform', () => {
+    const actor = new VoxelSplatActor({
+      voxelData: {
+        occupiedKeys: new Set(['0,0,0']),
+        resolution: 1,
+        origin: { x: 0, y: 0, z: 0 }
+      } as any
+    });
+
+    actor.splatMesh = new THREE.Object3D() as any;
+    actor.splatMesh.position.set(2, 3, 4);
+    actor.splatMesh.scale.set(2, 2, 2);
+    actor.splatMesh.updateMatrixWorld(true);
+
+    const bounds = actor.getFocusBoundingBox();
+    expect(bounds?.min.x).toBeCloseTo(2);
+    expect(bounds?.min.y).toBeCloseTo(3);
+    expect(bounds?.min.z).toBeCloseTo(4);
+    expect(bounds?.max.x).toBeCloseTo(4);
+    expect(bounds?.max.y).toBeCloseTo(5);
+    expect(bounds?.max.z).toBeCloseTo(6);
+  });
+
+  test('getFocusBoundingBox unions voxel bounds with extracted splat bounds', () => {
+    const actor = new VoxelSplatActor({
+      voxelData: {
+        occupiedKeys: new Set(['0,0,0']),
+        resolution: 1,
+        origin: { x: 0, y: 0, z: 0 }
+      } as any
+    });
+
+    actor.splatMesh = new THREE.Object3D() as any;
+    actor.splatMesh.getBoundingBox = vi.fn(() => new THREE.Box3(
+      new THREE.Vector3(-2, -1, -3),
+      new THREE.Vector3(3, 4, 2)
+    ));
+    actor.splatMesh.updateMatrixWorld(true);
+
+    const bounds = actor.getFocusBoundingBox();
+    expect(bounds?.min.x).toBeCloseTo(-2);
+    expect(bounds?.min.y).toBeCloseTo(-1);
+    expect(bounds?.min.z).toBeCloseTo(-3);
+    expect(bounds?.max.x).toBeCloseTo(3);
+    expect(bounds?.max.y).toBeCloseTo(4);
+    expect(bounds?.max.z).toBeCloseTo(2);
   });
 });

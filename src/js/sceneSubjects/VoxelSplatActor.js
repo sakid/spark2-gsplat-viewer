@@ -112,55 +112,79 @@ export class VoxelSplatActor {
     this.voxelData = null;
   }
 
-  getFocusBoundingBox() {
-    if (this.focusBounds) {
-      return this.focusBounds.clone();
+  getSplatFocusBoundingBox() {
+    if (typeof this.splatMesh?.getBoundingBox !== 'function') {
+      return null;
     }
+    try {
+      const bounds = this.splatMesh.getBoundingBox(false);
+      if (!bounds?.isBox3) return null;
+      const worldMatrix = this.splatMesh?.matrixWorld?.isMatrix4 ? this.splatMesh.matrixWorld : null;
+      return worldMatrix ? bounds.clone().applyMatrix4(worldMatrix) : bounds.clone();
+    } catch {
+      return null;
+    }
+  }
+
+  getVoxelFocusBoundingBox() {
     const voxelData = this.voxelData;
     if (!voxelData?.occupiedKeys?.size) {
-      if (typeof this.splatMesh?.getBoundingBox === 'function') {
-        try {
-          return this.splatMesh.getBoundingBox(false);
-        } catch {
-          return null;
-        }
-      }
       return null;
     }
 
-    let minX = Number.POSITIVE_INFINITY;
-    let minY = Number.POSITIVE_INFINITY;
-    let minZ = Number.POSITIVE_INFINITY;
-    let maxX = Number.NEGATIVE_INFINITY;
-    let maxY = Number.NEGATIVE_INFINITY;
-    let maxZ = Number.NEGATIVE_INFINITY;
-    for (const key of voxelData.occupiedKeys) {
-      const [xRaw, yRaw, zRaw] = String(key).split(',');
-      const x = Number(xRaw) || 0;
-      const y = Number(yRaw) || 0;
-      const z = Number(zRaw) || 0;
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      minZ = Math.min(minZ, z);
-      maxX = Math.max(maxX, x + 1);
-      maxY = Math.max(maxY, y + 1);
-      maxZ = Math.max(maxZ, z + 1);
+    if (!this.focusBounds) {
+      let minX = Number.POSITIVE_INFINITY;
+      let minY = Number.POSITIVE_INFINITY;
+      let minZ = Number.POSITIVE_INFINITY;
+      let maxX = Number.NEGATIVE_INFINITY;
+      let maxY = Number.NEGATIVE_INFINITY;
+      let maxZ = Number.NEGATIVE_INFINITY;
+      for (const key of voxelData.occupiedKeys) {
+        const [xRaw, yRaw, zRaw] = String(key).split(',');
+        const x = Number(xRaw) || 0;
+        const y = Number(yRaw) || 0;
+        const z = Number(zRaw) || 0;
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        minZ = Math.min(minZ, z);
+        maxX = Math.max(maxX, x + 1);
+        maxY = Math.max(maxY, y + 1);
+        maxZ = Math.max(maxZ, z + 1);
+      }
+
+      const resolution = Math.max(1e-6, Number(voxelData.resolution) || 1);
+      const origin = voxelData.origin ?? { x: 0, y: 0, z: 0 };
+      const min = new THREE.Vector3(
+        origin.x + minX * resolution,
+        origin.y + minY * resolution,
+        origin.z + minZ * resolution
+      );
+      const max = new THREE.Vector3(
+        origin.x + maxX * resolution,
+        origin.y + maxY * resolution,
+        origin.z + maxZ * resolution
+      );
+      this.focusBounds = new THREE.Box3(min, max);
     }
 
-    const resolution = Math.max(1e-6, Number(voxelData.resolution) || 1);
-    const origin = voxelData.origin ?? { x: 0, y: 0, z: 0 };
-    const min = new THREE.Vector3(
-      origin.x + minX * resolution,
-      origin.y + minY * resolution,
-      origin.z + minZ * resolution
-    );
-    const max = new THREE.Vector3(
-      origin.x + maxX * resolution,
-      origin.y + maxY * resolution,
-      origin.z + maxZ * resolution
-    );
-    this.focusBounds = new THREE.Box3(min, max);
-    return this.focusBounds.clone();
+    const bounds = this.focusBounds.clone();
+    const worldMatrix = this.splatMesh?.matrixWorld?.isMatrix4
+      ? this.splatMesh.matrixWorld
+      : (this.root?.matrixWorld?.isMatrix4 ? this.root.matrixWorld : null);
+    if (worldMatrix) {
+      bounds.applyMatrix4(worldMatrix);
+    }
+    return bounds;
+  }
+
+  getFocusBoundingBox() {
+    const splatBounds = this.getSplatFocusBoundingBox();
+    const voxelBounds = this.getVoxelFocusBoundingBox();
+
+    if (splatBounds && voxelBounds) {
+      return splatBounds.union(voxelBounds);
+    }
+    return splatBounds ?? voxelBounds ?? null;
   }
 
   setPoseMode(mode = DEFAULT_POSE_MODE) {

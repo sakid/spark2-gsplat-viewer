@@ -574,10 +574,23 @@ export class SceneManager {
   }
 
   applySceneViewMode() {
+    const actors = this.entities.filter((entity) => entity instanceof VoxelSplatActor);
+    const isolateActors = this.viewMode === 'splats-only' && actors.length > 0;
     const showVoxelProxies = this.viewMode !== 'splats-only' && this.showProxyRequested;
+    if (this.selectionOutline) {
+      if (isolateActors) this.selectionOutline.visible = false;
+      else this.updateSelectionOutline?.();
+    }
     for (const entity of this.entities) {
-      if (!(entity instanceof VoxelSplatActor)) continue;
-      entity.setProxyVisible(showVoxelProxies);
+      if (entity instanceof VoxelSplatActor) {
+        entity.setProxyVisible(showVoxelProxies);
+        continue;
+      }
+      entity.applySceneRenderState?.({
+        viewMode: this.viewMode,
+        showProxyRequested: this.showProxyRequested,
+        isolateActors
+      });
     }
   }
 

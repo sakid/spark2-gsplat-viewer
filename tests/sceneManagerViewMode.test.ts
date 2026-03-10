@@ -8,6 +8,7 @@ function createManagerStub() {
     showProxyRequested: true,
     actorPoseModeRequested: 'walk',
     entities: [],
+    selectionOutline: { visible: true },
     normalizeActorPoseMode: SceneManager.prototype.normalizeActorPoseMode,
     findSelectedVoxelActor: SceneManager.prototype.findSelectedVoxelActor,
     getPrimarySelectedObject: () => null
@@ -18,16 +19,28 @@ describe('SceneManager view mode proxy visibility', () => {
   test('hides extracted actor proxies when splats-only mode is active', () => {
     const manager = createManagerStub();
     const setProxyVisible = vi.fn();
+    const applySceneRenderState = vi.fn();
     const actor = Object.create(VoxelSplatActor.prototype) as VoxelSplatActor;
     actor.setProxyVisible = setProxyVisible;
-    manager.entities = [actor];
+    manager.entities = [actor, { applySceneRenderState } as any];
 
     SceneManager.prototype.applySceneViewMode.call(manager);
     expect(setProxyVisible).toHaveBeenCalledWith(true);
+    expect(applySceneRenderState).toHaveBeenCalledWith({
+      viewMode: 'full',
+      showProxyRequested: true,
+      isolateActors: false
+    });
 
     manager.viewMode = 'splats-only';
     SceneManager.prototype.applySceneViewMode.call(manager);
     expect(setProxyVisible).toHaveBeenLastCalledWith(false);
+    expect(applySceneRenderState).toHaveBeenLastCalledWith({
+      viewMode: 'splats-only',
+      showProxyRequested: true,
+      isolateActors: true
+    });
+    expect((manager as any).selectionOutline.visible).toBe(false);
   });
 
   test('hides extracted actor proxies when show-proxy is disabled', () => {
