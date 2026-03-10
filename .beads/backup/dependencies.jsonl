@@ -37,6 +37,7 @@
 {"created_at":"2026-03-02T19:33:34Z","created_by":"alyoshakidoguchi","depends_on_id":"SPARK2-am4","issue_id":"SPARK2-am4.7","type":"parent-child"}
 {"created_at":"2026-03-02T19:33:35Z","created_by":"alyoshakidoguchi","depends_on_id":"SPARK2-am4.6","issue_id":"SPARK2-am4.7","type":"blocks"}
 {"created_at":"2026-03-02T19:33:34Z","created_by":"alyoshakidoguchi","depends_on_id":"SPARK2-u1u","issue_id":"SPARK2-am4.7","type":"discovered-from"}
+{"created_at":"2026-03-10T02:51:02Z","created_by":"alyoshakidoguchi","depends_on_id":"SPARK2-nf0","issue_id":"SPARK2-ar8","type":"discovered-from"}
 {"created_at":"2026-03-02T17:24:47Z","created_by":"alyoshakidoguchi","depends_on_id":"SPARK2-u1u","issue_id":"SPARK2-at1","type":"discovered-from"}
 {"created_at":"2026-03-03T18:40:42Z","created_by":"alyoshakidoguchi","depends_on_id":"SPARK2-dc7","issue_id":"SPARK2-cto","type":"discovered-from"}
 {"created_at":"2026-03-02T16:31:05Z","created_by":"alyoshakidoguchi","depends_on_id":"SPARK2-684","issue_id":"SPARK2-cwn","type":"discovered-from"}
@@ -50,6 +51,7 @@
 {"created_at":"2026-03-02T17:24:47Z","created_by":"alyoshakidoguchi","depends_on_id":"SPARK2-u1u","issue_id":"SPARK2-kvy","type":"discovered-from"}
 {"created_at":"2026-03-03T11:04:39Z","created_by":"alyoshakidoguchi","depends_on_id":"SPARK2-vg5","issue_id":"SPARK2-lup","type":"discovered-from"}
 {"created_at":"2026-03-04T00:14:24Z","created_by":"alyoshakidoguchi","depends_on_id":"SPARK2-1d2","issue_id":"SPARK2-nau","type":"discovered-from"}
+{"created_at":"2026-03-10T02:12:37Z","created_by":"alyoshakidoguchi","depends_on_id":"SPARK2-uvp","issue_id":"SPARK2-nf0","type":"discovered-from"}
 {"created_at":"2026-03-10T01:20:02Z","created_by":"alyoshakidoguchi","depends_on_id":"SPARK2-uvp","issue_id":"SPARK2-sjv","type":"discovered-from"}
 {"created_at":"2026-03-10T00:41:01Z","created_by":"alyoshakidoguchi","depends_on_id":"SPARK2-5a2","issue_id":"SPARK2-uvp","type":"discovered-from"}
 {"created_at":"2026-03-02T19:33:35Z","created_by":"alyoshakidoguchi","depends_on_id":"SPARK2-am4.1","issue_id":"SPARK2-vg5","type":"blocks"}
