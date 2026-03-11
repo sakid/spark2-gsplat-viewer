@@ -1,5 +1,6 @@
 import { bindSplatToBones } from '../proxy/skinBinding';
 import * as THREE from 'three';
+import { normalizeSplatMeshCounts } from './splatMeshCounts';
 
 const tempMatrix = new THREE.Matrix4();
 const tempInv = new THREE.Matrix4();
@@ -28,7 +29,7 @@ export class ProxySplatDeformer {
     this.splatMesh.covSplats = true;
     this.splatMesh.updateGenerator?.();
   }
-  bind({ sparkModule, splatMesh, bones, animatedRoot }) {
+  bind({ sparkModule, splatMesh, bones, animatedRoot, precomputedBindings = null }) {
     this.dispose();
     this.splatMesh = splatMesh ?? null;
     this.bones = Array.isArray(bones) ? bones : null;
@@ -44,11 +45,17 @@ export class ProxySplatDeformer {
     }
 
     try {
+      const totalSplats = normalizeSplatMeshCounts(this.splatMesh);
       const linearBlend = sparkModule.SplatSkinningMode?.LINEAR_BLEND ?? 'linear_blend';
       if (this.bones?.length) {
         this.ensureCovSplats();
         this.skinning = new sparkModule.SplatSkinning({ mesh: this.splatMesh, numBones: this.bones.length, mode: linearBlend });
-        bindSplatToBones({ splatMesh: this.splatMesh, skinning: this.skinning, bones: this.bones });
+        bindSplatToBones({
+          splatMesh: this.splatMesh,
+          skinning: this.skinning,
+          bones: this.bones,
+          bindingArrays: precomputedBindings
+        });
         if (this.skinning.skinTexture) this.skinning.skinTexture.needsUpdate = true;
         for (let i = 0; i < this.bones.length; i += 1) {
           this.bones[i].updateMatrixWorld(true);
@@ -67,7 +74,7 @@ export class ProxySplatDeformer {
         tempInv.copy(this.splatMesh.matrixWorld).invert();
         tempMatrix.multiplyMatrices(tempInv, this.animatedRoot.matrixWorld);
         this.skinning.setRestMatrix?.(0, tempMatrix);
-        const total = Math.max(0, Number(this.splatMesh.numSplats ?? 0));
+        const total = Math.max(0, totalSplats);
         this.pendingWeights = total > 1_000_000 ? { next: 0, total } : null;
         if (!this.pendingWeights) {
           for (let i = 0; i < total; i += 1) this.skinning.setSplatBones(i, INDEX0, WEIGHT0);

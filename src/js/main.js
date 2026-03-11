@@ -42,6 +42,7 @@ async function bootstrap() {
   const sceneManager = new SceneManager({ container: bootstrapContainer, eventBus, statusReporter });
   await sceneManager.init();
   const disposeEditor = initDockviewEditor(sceneManager, eventBus);
+  statusReporter.resync();
   const canvas = sceneManager.getCanvas();
 
   const syncSlotOptions = (root = null, preferred = null) => {
@@ -78,7 +79,11 @@ async function bootstrap() {
     sceneEventDisposers.push(dispose);
   };
 
-  onEvent('ui:controlsReady', (payload) => syncSlotOptions(payload?.root ?? null));
+  onEvent('ui:controlsReady', (payload) => {
+    const root = payload?.root ?? null;
+    syncSlotOptions(root);
+    statusReporter.resync(root);
+  });
   onEvent('scene:slotsRefreshRequested', (payload) => syncSlotOptions(payload?.root ?? null));
 
   onEvent('scene:saveFileRequested', (payload) => {
@@ -147,6 +152,13 @@ async function bootstrap() {
     } catch (error) {
       statusReporter.setStatus(`Delete slot failed: ${error instanceof Error ? error.message : String(error)}`, 'error');
     }
+  });
+
+  onEvent('status:message', (payload) => {
+    const text = payload?.text;
+    if (!text) return;
+    const kind = payload?.kind === 'error' ? 'error' : payload?.kind === 'warning' ? 'warning' : 'info';
+    statusReporter.setStatus(String(text), kind);
   });
 
   syncSlotOptions();

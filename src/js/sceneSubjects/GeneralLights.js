@@ -23,6 +23,10 @@ function createProbeRig() {
 export class GeneralLights {
   constructor() {
     this.unsubscribers = [];
+    this.viewMode = 'full';
+    this.showProbesRequested = true;
+    this.showHelpersRequested = true;
+    this.showGizmosRequested = true;
   }
 
   async init(context) {
@@ -46,10 +50,23 @@ export class GeneralLights {
     context.scene.add(this.probeRig);
 
     const on = (event, handler) => this.unsubscribers.push(context.eventBus.on(event, handler));
-    on('lights:showProbes', (enabled) => { this.probeRig.visible = enabled; });
-    on('lights:showHelpers', (enabled) => { this.keyHelper.visible = enabled; });
-    on('lights:showGizmos', (enabled) => { this.gizmo.visible = enabled; });
+    on('lights:showProbes', (enabled) => {
+      this.showProbesRequested = Boolean(enabled);
+      this.applyOverlayVisibility();
+    });
+    on('lights:showHelpers', (enabled) => {
+      this.showHelpersRequested = Boolean(enabled);
+      this.applyOverlayVisibility();
+    });
+    on('lights:showGizmos', (enabled) => {
+      this.showGizmosRequested = Boolean(enabled);
+      this.applyOverlayVisibility();
+    });
     on('lights:showMovementControls', () => {});
+    on('environment:viewMode', (mode) => {
+      this.viewMode = mode === 'splats-only' ? 'splats-only' : 'full';
+      this.applyOverlayVisibility();
+    });
     on('lights:rendererSettings', (settings) => {
       const renderer = context.renderer;
       renderer.toneMapping = toneMappingMode(settings.toneMapping);
@@ -57,6 +74,14 @@ export class GeneralLights {
       renderer.shadowMap.enabled = Boolean(settings.shadowsEnabled);
       if ('useLegacyLights' in renderer) renderer.useLegacyLights = !settings.physicallyCorrectLights;
     });
+    this.applyOverlayVisibility();
+  }
+
+  applyOverlayVisibility() {
+    const visible = this.viewMode !== 'splats-only';
+    if (this.probeRig) this.probeRig.visible = this.showProbesRequested && visible;
+    if (this.keyHelper) this.keyHelper.visible = this.showHelpersRequested && visible;
+    if (this.gizmo) this.gizmo.visible = this.showGizmosRequested && visible;
   }
 
   update(delta) {
@@ -67,6 +92,11 @@ export class GeneralLights {
     this.keyHelper.update();
     this.gizmo.position.copy(this.key.position);
     this.gizmo.scale.setScalar(1);
+  }
+
+  applySceneRenderState({ viewMode } = {}) {
+    this.viewMode = viewMode === 'splats-only' ? 'splats-only' : 'full';
+    this.applyOverlayVisibility();
   }
 
   dispose() {

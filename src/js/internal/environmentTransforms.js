@@ -2,6 +2,12 @@ import * as THREE from 'three';
 
 const unitX = new THREE.Vector3(1, 0, 0);
 const tempQuat = new THREE.Quaternion();
+const tempQuatB = new THREE.Quaternion();
+const tempPos = new THREE.Vector3();
+const tempScale = new THREE.Vector3();
+const tempParentInv = new THREE.Matrix4();
+const tempParentToMesh = new THREE.Matrix4();
+const tempWorld = new THREE.Matrix4();
 const flipQuat = new THREE.Quaternion();
 
 function captureBaseTransform(object) {
@@ -18,6 +24,21 @@ function applyFlipQuaternion(quaternion) {
   quaternion.multiply(flipQuat);
 }
 
+function captureRelativeTransform(object, parent) {
+  if (!object) return null;
+  if (!parent) return captureBaseTransform(object);
+  parent.updateMatrixWorld(true);
+  object.updateMatrixWorld(true);
+  tempParentInv.copy(parent.matrixWorld).invert();
+  tempParentToMesh.multiplyMatrices(tempParentInv, object.matrixWorld);
+  tempParentToMesh.decompose(tempPos, tempQuatB, tempScale);
+  return {
+    position: tempPos.clone(),
+    quaternion: tempQuatB.clone(),
+    scale: new THREE.Vector3(Math.abs(tempScale.x) || 1, Math.abs(tempScale.y) || 1, Math.abs(tempScale.z) || 1)
+  };
+}
+
 // NEW PROXY ANIMATION
 export class EnvironmentTransforms {
   constructor() {
@@ -28,6 +49,9 @@ export class EnvironmentTransforms {
     this.proxyMirrorZ = false;
     this.splatBase = null;
     this.proxyBase = null;
+    this.splatManualOffset = new THREE.Vector3();
+    this.splatManualQuaternion = new THREE.Quaternion();
+    this.splatManualScale = 1;
     this.proxyAlignOffset = new THREE.Vector3();
     this.proxyAlignScale = 1;
     this.proxyAlignQuaternion = new THREE.Quaternion();
@@ -38,8 +62,8 @@ export class EnvironmentTransforms {
     this[flag] = Boolean(enabled);
   }
 
-  captureSplat(mesh) {
-    this.splatBase = captureBaseTransform(mesh);
+  captureSplat(mesh, parent = null) {
+    this.splatBase = captureRelativeTransform(mesh, parent);
   }
 
   captureProxy(proxy) {
@@ -48,6 +72,9 @@ export class EnvironmentTransforms {
 
   clearSplat() {
     this.splatBase = null;
+    this.splatManualOffset.set(0, 0, 0);
+    this.splatManualQuaternion.identity();
+    this.splatManualScale = 1;
   }
 
   clearProxy() {
@@ -64,14 +91,39 @@ export class EnvironmentTransforms {
     else this.proxyAlignQuaternion.identity();
   }
 
-  applySplat(mesh) {
+  setSplatManualAlignment({ offset, scale, quaternion } = {}) {
+    this.splatManualOffset.copy(offset ?? new THREE.Vector3());
+    this.splatManualScale = Number.isFinite(scale) ? Math.max(scale, 1e-4) : 1;
+    if (quaternion instanceof THREE.Quaternion) this.splatManualQuaternion.copy(quaternion);
+    else this.splatManualQuaternion.identity();
+  }
+
+  applySplat(mesh, parent = null) {
     if (!mesh || !this.splatBase) return;
     tempQuat.copy(this.splatBase.quaternion);
+    tempQuat.multiply(this.splatManualQuaternion);
     if (this.flipUpDown) applyFlipQuaternion(tempQuat);
-    mesh.position.copy(this.splatBase.position);
-    mesh.quaternion.copy(tempQuat);
-    mesh.scale.copy(this.splatBase.scale);
-    if (this.flipLeftRight) mesh.scale.x = -mesh.scale.x;
+    tempScale.copy(this.splatBase.scale).multiplyScalar(this.splatManualScale);
+    if (this.flipLeftRight) tempScale.x = -tempScale.x;
+    tempPos.copy(this.splatBase.position).add(this.splatManualOffset);
+    if (!parent) {
+      mesh.position.copy(tempPos);
+      mesh.quaternion.copy(tempQuat);
+      mesh.scale.copy(tempScale);
+      mesh.updateMatrixWorld(true);
+      return;
+    }
+    parent.updateMatrixWorld(true);
+    tempParentToMesh.compose(tempPos, tempQuat, tempScale);
+    tempWorld.multiplyMatrices(parent.matrixWorld, tempParentToMesh);
+    if (mesh.parent) {
+      mesh.parent.updateMatrixWorld(true);
+      tempParentInv.copy(mesh.parent.matrixWorld).invert();
+      tempParentToMesh.multiplyMatrices(tempParentInv, tempWorld);
+      tempParentToMesh.decompose(mesh.position, mesh.quaternion, mesh.scale);
+    } else {
+      tempWorld.decompose(mesh.position, mesh.quaternion, mesh.scale);
+    }
     mesh.updateMatrixWorld(true);
   }
 

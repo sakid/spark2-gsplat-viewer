@@ -19,6 +19,7 @@ export class DynoEffectSplat {
   constructor() {
     this.unsubscribers = [];
     this.elapsed = 0;
+    this.actorIsolationActive = false;
   }
 
   async init(context) {
@@ -64,6 +65,15 @@ export class DynoEffectSplat {
     }
   }
 
+  applyVisibility() {
+    if (this.splatMesh) {
+      this.splatMesh.visible = !this.actorIsolationActive;
+    }
+    if (this.rig?.mesh) {
+      this.rig.mesh.visible = false;
+    }
+  }
+
   update(delta) {
     this.elapsed += delta;
     this.rig.update(delta);
@@ -85,6 +95,11 @@ export class DynoEffectSplat {
       const glow = 0.55 + 0.45 * Math.sin(this.elapsed * 2.5);
       this.splatMesh.recolor.setRGB(glow, 1 - glow * 0.3, 1);
     }
+  }
+
+  applySceneRenderState({ isolateActors } = {}) {
+    this.actorIsolationActive = Boolean(isolateActors);
+    this.applyVisibility();
   }
 
   dispose() {

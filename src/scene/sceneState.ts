@@ -14,6 +14,7 @@ export const DEFAULT_LIGHT_SHADOW_NORMAL_BIAS = 0.02;
 export type SceneFileVersion = 1 | 2;
 export type SceneLightType = 'ambient' | 'directional' | 'point' | 'spot';
 export type SceneToneMapping = 'ACESFilmic' | 'Neutral' | 'None';
+export type EditorGizmoSpace = 'world' | 'local';
 
 export interface SceneLightBaseV2 {
   id: string;
@@ -105,6 +106,12 @@ export interface SceneSettingsV2 {
   collisionEnabled: boolean;
   showProxyMesh: boolean;
   voxelEditMode: boolean;
+  objectEditMode: boolean;
+  editorSnapEnabled: boolean;
+  editorGizmoSpace: EditorGizmoSpace;
+  editorTranslateSnap: number;
+  editorRotateSnap: number;
+  editorScaleSnap: number;
 }
 
 export interface SceneFileV2 {
@@ -252,6 +259,10 @@ function isSceneLightType(value: unknown): value is SceneLightType {
 
 function isSceneToneMapping(value: unknown): value is SceneToneMapping {
   return value === 'ACESFilmic' || value === 'Neutral' || value === 'None';
+}
+
+function isEditorGizmoSpace(value: unknown): value is EditorGizmoSpace {
+  return value === 'world' || value === 'local';
 }
 
 function normalizeShadowSettings(raw: Record<string, unknown>, namePrefix: string): SceneShadowSettingsV2 {
@@ -480,7 +491,13 @@ function validateSceneSettingsV2(raw: unknown): SceneSettingsV2 {
     showLightingProbes: assertBoolean(raw.showLightingProbes, 'settings.showLightingProbes'),
     collisionEnabled: 'collisionEnabled' in raw ? assertBoolean(raw.collisionEnabled, 'settings.collisionEnabled') : true,
     showProxyMesh: 'showProxyMesh' in raw ? assertBoolean(raw.showProxyMesh, 'settings.showProxyMesh') : false,
-    voxelEditMode: 'voxelEditMode' in raw ? assertBoolean(raw.voxelEditMode, 'settings.voxelEditMode') : false
+    voxelEditMode: 'voxelEditMode' in raw ? assertBoolean(raw.voxelEditMode, 'settings.voxelEditMode') : false,
+    objectEditMode: 'objectEditMode' in raw ? assertBoolean(raw.objectEditMode, 'settings.objectEditMode') : false,
+    editorSnapEnabled: 'editorSnapEnabled' in raw ? assertBoolean(raw.editorSnapEnabled, 'settings.editorSnapEnabled') : true,
+    editorGizmoSpace: isEditorGizmoSpace(raw.editorGizmoSpace) ? raw.editorGizmoSpace : 'world',
+    editorTranslateSnap: 'editorTranslateSnap' in raw ? assertFiniteNumber(raw.editorTranslateSnap, 'settings.editorTranslateSnap') : 0.25,
+    editorRotateSnap: 'editorRotateSnap' in raw ? assertFiniteNumber(raw.editorRotateSnap, 'settings.editorRotateSnap') : 15,
+    editorScaleSnap: 'editorScaleSnap' in raw ? assertFiniteNumber(raw.editorScaleSnap, 'settings.editorScaleSnap') : 0.1
   };
 }
 
@@ -636,7 +653,19 @@ export function createDefaultSceneSettings(partial: Partial<SceneSettingsV2> = {
     showLightingProbes: partial.showLightingProbes ?? true,
     collisionEnabled: partial.collisionEnabled ?? true,
     showProxyMesh: partial.showProxyMesh ?? false,
-    voxelEditMode: partial.voxelEditMode ?? false
+    voxelEditMode: partial.voxelEditMode ?? false,
+    objectEditMode: partial.objectEditMode ?? false,
+    editorSnapEnabled: partial.editorSnapEnabled ?? true,
+    editorGizmoSpace: partial.editorGizmoSpace === 'local' ? 'local' : 'world',
+    editorTranslateSnap: Number.isFinite(partial.editorTranslateSnap)
+      ? Math.max(0.01, partial.editorTranslateSnap as number)
+      : 0.25,
+    editorRotateSnap: Number.isFinite(partial.editorRotateSnap)
+      ? Math.max(0.1, partial.editorRotateSnap as number)
+      : 15,
+    editorScaleSnap: Number.isFinite(partial.editorScaleSnap)
+      ? Math.max(0.01, partial.editorScaleSnap as number)
+      : 0.1
   };
 }
 

@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "localtest": "bash scripts/localtest.sh dev",
+    "localtest:preview": "bash scripts/localtest.sh preview",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
@@ -12,8 +14,12 @@
     "check:lines": "node scripts/check-lines.mjs",
     "test:collision-smoke": "node scripts/collision-smoke.mjs",
     "test:deform-smoke": "node scripts/deform-smoke.mjs",
+    "test:voxel-segmentation-smoke": "node scripts/voxel-segmentation-smoke.mjs",
+    "test:default-actor-smoke": "node scripts/default-actor-smoke.mjs",
+    "test:actor-diagnostic": "node scripts/actor-extraction-diagnostic.mjs",
     "convert:ply-to-spz": "tsx scripts/convert-ply-to-spz.mts",
-    "convert:proxy": "tsx scripts/convert-proxy-mesh.mts"
+    "convert:proxy": "tsx scripts/convert-proxy-mesh.mts",
+    "actor-cache-server": "tsx scripts/actor-cache-server.mts"
   },
   "dependencies": {
     "@sparkjsdev/spark": "file:vendor/spark-preview.tgz",

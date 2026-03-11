@@ -102,6 +102,42 @@ export class VoxelEditState {
         return this.selected;
     }
 
+    setSelection(indices: Iterable<number>): void {
+        if (!this.data) return;
+
+        const next = new Set<number>();
+        const upperBound = this.data.indexToKey.length;
+        for (const index of indices) {
+            if (!Number.isInteger(index)) continue;
+            if (index < 0 || index >= upperBound) continue;
+            next.add(index);
+        }
+
+        for (const index of this.selected) {
+            if (!next.has(index)) {
+                setVoxelSelected(this.data, index, false);
+            }
+        }
+        for (const index of next) {
+            if (!this.selected.has(index)) {
+                setVoxelSelected(this.data, index, true);
+            }
+        }
+
+        this.selected.clear();
+        for (const index of next) this.selected.add(index);
+        this.notifyChange();
+    }
+
+    addSelect(instanceIndex: number): void {
+        if (!this.data) return;
+        if (instanceIndex < 0 || instanceIndex >= this.data.indexToKey.length) return;
+        if (this.selected.has(instanceIndex)) return;
+        this.selected.add(instanceIndex);
+        setVoxelSelected(this.data, instanceIndex, true);
+        this.notifyChange();
+    }
+
     // --- Delete ---
 
     deleteSelected(): string[] {
@@ -122,6 +158,85 @@ export class VoxelEditState {
         this.selected.clear();
         this.notifyChange();
         return deletedKeys;
+    }
+
+    invertSelection(): void {
+        if (!this.data) return;
+
+        const next = new Set<number>();
+        for (let i = 0; i < this.data.indexToKey.length; i += 1) {
+            const key = this.data.indexToKey[i];
+            if (!this.data.occupiedKeys.has(key)) continue;
+            if (!this.selected.has(i)) next.add(i);
+        }
+
+        this.setSelection(next);
+    }
+
+    keepSelected(): string[] {
+        if (!this.data || this.selected.size === 0) return [];
+
+        const indicesToDelete: number[] = [];
+        for (let i = 0; i < this.data.indexToKey.length; i += 1) {
+            const key = this.data.indexToKey[i];
+            if (!this.data.occupiedKeys.has(key)) continue;
+            if (this.selected.has(i)) continue;
+            indicesToDelete.push(i);
+        }
+
+        const deletedKeys: string[] = [];
+        for (const index of indicesToDelete) {
+            const key = deleteVoxelInstance(this.data, index);
+            if (!key) continue;
+            this.deleted.add(key);
+            deletedKeys.push(key);
+        }
+
+        if (indicesToDelete.length > 0) {
+            this.undoStack.push({ type: 'delete', indices: indicesToDelete, keys: deletedKeys });
+        }
+        this.notifyChange();
+        return deletedKeys;
+    }
+
+    selectConnectedFrom(seedIndex: number): void {
+        if (!this.data) return;
+        if (!Number.isInteger(seedIndex) || seedIndex < 0 || seedIndex >= this.data.indexToKey.length) return;
+
+        const seedKey = this.data.indexToKey[seedIndex];
+        if (!this.data.occupiedKeys.has(seedKey)) return;
+
+        const parse = (key: string): [number, number, number] => {
+            const [x, y, z] = key.split(',');
+            return [Number(x) || 0, Number(y) || 0, Number(z) || 0];
+        };
+
+        const hash = (x: number, y: number, z: number): string => `${x},${y},${z}`;
+        const visited = new Set<string>();
+        const queue: string[] = [seedKey];
+        const connectedIndices = new Set<number>();
+
+        while (queue.length > 0) {
+            const key = queue.pop() as string;
+            if (visited.has(key)) continue;
+            visited.add(key);
+            if (!this.data.occupiedKeys.has(key)) continue;
+
+            const index = this.data.keyToIndex.get(key);
+            if (Number.isInteger(index)) connectedIndices.add(index as number);
+
+            const [x, y, z] = parse(key);
+            queue.push(
+                hash(x + 1, y, z),
+                hash(x - 1, y, z),
+                hash(x, y + 1, z),
+                hash(x, y - 1, z),
+                hash(x, y, z + 1),
+                hash(x, y, z - 1)
+            );
+        }
+
+        this.setSelection(connectedIndices);
     }
 
     // --- Move ---
