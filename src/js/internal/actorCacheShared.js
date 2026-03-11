@@ -1,6 +1,8 @@
 export const ACTOR_CACHE_SERVER_ORIGIN = 'http://127.0.0.1:3210';
 export const ACTOR_CACHE_SERVER_TIMEOUT_MS = 120_000;
-export const ACTOR_CACHE_MANIFEST_VERSION = 2;
+export const ACTOR_CACHE_MANIFEST_VERSION = 3;
+export const ACTOR_CACHE_SUBSET_FORMAT_VERSION = 1;
+export const ACTOR_CACHE_SUBSET_FORMAT = 'spz';
 export const STANDARD_HUMANOID_RIG_PRESET = 'xbot-v1';
 export const STANDARD_HUMANOID_RIG_FILE_NAME = 'xbot_humanoid.glb';
 export const STANDARD_HUMANOID_RIG_URL = `/assets/proxies/${STANDARD_HUMANOID_RIG_FILE_NAME}`;
@@ -34,6 +36,25 @@ function normalizeQuaternion(value, fallback = [0, 0, 0, 1]) {
     toFiniteNumber(source[2], fallback[2]),
     toFiniteNumber(source[3], fallback[3])
   ];
+}
+
+function normalizeSelectionStats(value) {
+  if (!value || typeof value !== 'object') return null;
+  return {
+    candidateCount: Math.max(0, Math.floor(toFiniteNumber(value.candidateCount, 0))),
+    coreCenterCount: Math.max(0, Math.floor(toFiniteNumber(value.coreCenterCount, 0))),
+    extractionCenterCount: Math.max(0, Math.floor(toFiniteNumber(value.extractionCenterCount, 0))),
+    retainedCount: Math.max(0, Math.floor(toFiniteNumber(value.retainedCount, 0))),
+    subsetMethod: typeof value.subsetMethod === 'string' ? value.subsetMethod : 'unknown',
+    threshold: toFiniteNumber(value.threshold, 0),
+    componentCount: Math.max(0, Math.floor(toFiniteNumber(value.componentCount, 0))),
+    bounds: value.bounds ?? null,
+    opacity: value.opacity ?? null,
+    support: value.support ?? null,
+    score: value.score ?? null,
+    density: value.density ?? null,
+    scoreRange: value.scoreRange ?? null
+  };
 }
 
 export function normalizeActorCacheTransform(value = {}) {
@@ -78,6 +99,9 @@ export function normalizeActorCacheManifest(raw, baseUrl = ACTOR_CACHE_SERVER_OR
   const skinWeightsRaw = typeof manifest.skinWeightsUrl === 'string' ? manifest.skinWeightsUrl : '';
   const rigPreset = typeof manifest.rigPreset === 'string' ? manifest.rigPreset : STANDARD_HUMANOID_RIG_PRESET;
   const defaultClip = typeof manifest.defaultClip === 'string' ? manifest.defaultClip : 'walk';
+  const subsetFormat = typeof manifest.subsetFormat === 'string' ? manifest.subsetFormat : ACTOR_CACHE_SUBSET_FORMAT;
+  const subsetFormatVersion = Math.max(1, Math.floor(toFiniteNumber(manifest.subsetFormatVersion, ACTOR_CACHE_SUBSET_FORMAT_VERSION)));
+  const subsetMethod = typeof manifest.subsetMethod === 'string' ? manifest.subsetMethod : 'unknown';
 
   if (!sourceHash) throw new Error('Actor cache manifest is missing sourceHash.');
   if (!actorSpzRaw) throw new Error('Actor cache manifest is missing actorSpzUrl.');
@@ -94,6 +118,10 @@ export function normalizeActorCacheManifest(raw, baseUrl = ACTOR_CACHE_SERVER_OR
     skinWeightsUrl: new URL(skinWeightsRaw, baseUrl).href,
     rigPreset,
     defaultClip,
+    subsetFormat,
+    subsetFormatVersion,
+    subsetMethod,
+    selectionStats: normalizeSelectionStats(manifest.selectionStats),
     sourceTransform: normalizeActorCacheTransform(manifest.sourceTransform),
     alignment: normalizeActorCacheAlignment(manifest.alignment),
     boneLocalTransforms: normalizeBoneLocalTransforms(manifest.boneLocalTransforms),
@@ -112,7 +140,9 @@ export function buildActorCacheJobKey({
   maxVoxelRadius = DEFAULT_ACTOR_CACHE_REQUEST.maxVoxelRadius,
   rigPreset = DEFAULT_ACTOR_CACHE_REQUEST.rigPreset,
   sourceTransform,
-  voxelData
+  voxelData,
+  subsetFormat = ACTOR_CACHE_SUBSET_FORMAT,
+  subsetFormatVersion = ACTOR_CACHE_SUBSET_FORMAT_VERSION
 } = {}) {
   const keys = Array.isArray(extractionKeys) ? [...extractionKeys].map((key) => String(key)).sort() : [];
   const selected = Array.isArray(selectedKeys) ? [...selectedKeys].map((key) => String(key)).sort() : [];
@@ -133,6 +163,8 @@ export function buildActorCacheJobKey({
     overlapScale: Math.max(0, toFiniteNumber(overlapScale, DEFAULT_ACTOR_CACHE_REQUEST.overlapScale)),
     maxVoxelRadius: Math.max(0, Math.floor(toFiniteNumber(maxVoxelRadius, DEFAULT_ACTOR_CACHE_REQUEST.maxVoxelRadius))),
     rigPreset: String(rigPreset || DEFAULT_ACTOR_CACHE_REQUEST.rigPreset),
+    subsetFormat: String(subsetFormat || ACTOR_CACHE_SUBSET_FORMAT),
+    subsetFormatVersion: Math.max(1, Math.floor(toFiniteNumber(subsetFormatVersion, ACTOR_CACHE_SUBSET_FORMAT_VERSION))),
     sourceTransform: transform,
     voxelData: normalizedVoxel
   });

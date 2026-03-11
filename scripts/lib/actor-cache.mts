@@ -9,6 +9,8 @@ import * as THREE from 'three';
 import { SpzReader, SpzWriter } from '@sparkjsdev/spark';
 import {
   ACTOR_CACHE_MANIFEST_VERSION,
+  ACTOR_CACHE_SUBSET_FORMAT,
+  ACTOR_CACHE_SUBSET_FORMAT_VERSION,
   ACTOR_CACHE_SERVER_ORIGIN,
   DEFAULT_ACTOR_CACHE_REQUEST,
   STANDARD_HUMANOID_RIG_PRESET,
@@ -20,15 +22,20 @@ import {
   serializeAlignment,
   serializeBoneLocalTransforms
 } from '../../src/js/internal/standardHumanoidRig.js';
-import { composeTransformMatrix, createVoxelOverlapSelector, normalizeVoxelOrigin } from '../../src/js/internal/splatSelection.js';
+import {
+  composeTransformMatrix,
+  createVoxelOverlapSelector,
+  normalizeVoxelOrigin,
+  resolveWorldScaleMax
+} from '../../src/js/internal/splatSelection.js';
 import { computeProxyAlignment } from '../../src/js/internal/proxyAlign.js';
 import { fitHumanoidRigToVoxelData } from '../../src/js/internal/voxelPoseFitter.js';
 import { loadProxyFromFile } from '../../src/js/internal/proxyLoader.js';
 import { computeSplatBoneBindingArrays } from '../../src/js/proxy/skinBinding.js';
 import {
-  createSelectedSplatCellMap,
-  selectPrimaryActorSplatCellKeys
+  selectPrimaryActorSplatCandidateIndices
 } from '../../src/js/internal/splatActorSelection.js';
+import { summarizeSplatCandidates } from '../../src/js/internal/splatDiagnostics.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../..');
@@ -70,6 +77,59 @@ function buildHashHex(value) {
   const hash = createHash('sha256');
   hash.update(value);
   return hash.digest('hex');
+}
+
+function hashKey(x, y, z) {
+  return `${x},${y},${z}`;
+}
+
+function estimateSupportScore({
+  extractionKeys,
+  centerKey,
+  centerWorld,
+  scale,
+  origin,
+  resolution,
+  worldScaleMax,
+  overlapScale,
+  maxVoxelRadius
+}) {
+  if (extractionKeys.has(centerKey)) return 1;
+
+  const maxScale = Math.max(
+    0,
+    toFiniteNumber(scale?.x, 0),
+    toFiniteNumber(scale?.y, 0),
+    toFiniteNumber(scale?.z, 0)
+  );
+  const radiusWorld = Math.max(
+    0,
+    Math.min(maxVoxelRadius * resolution, maxScale * worldScaleMax * overlapScale)
+  );
+  if (radiusWorld <= 1e-6) return 0;
+
+  const minKeyX = Math.floor((centerWorld.x - radiusWorld - origin.x) / resolution);
+  const minKeyY = Math.floor((centerWorld.y - radiusWorld - origin.y) / resolution);
+  const minKeyZ = Math.floor((centerWorld.z - radiusWorld - origin.z) / resolution);
+  const maxKeyX = Math.floor((centerWorld.x + radiusWorld - origin.x) / resolution);
+  const maxKeyY = Math.floor((centerWorld.y + radiusWorld - origin.y) / resolution);
+  const maxKeyZ = Math.floor((centerWorld.z + radiusWorld - origin.z) / resolution);
+
+  let overlapHits = 0;
+  let overlapTotal = 0;
+  for (let x = minKeyX; x <= maxKeyX; x += 1) {
+    for (let y = minKeyY; y <= maxKeyY; y += 1) {
+      for (let z = minKeyZ; z <= maxKeyZ; z += 1) {
+        overlapTotal += 1;
+        if (extractionKeys.has(hashKey(x, y, z))) {
+          overlapHits += 1;
+        }
+      }
+    }
+  }
+
+  if (overlapTotal < 1) return 0;
+  return overlapHits / overlapTotal;
 }
 
 function responseJson(res, statusCode, payload) {
@@ -216,9 +276,15 @@ async function collectSelectionPass({ sourceBytes, request, job }) {
   const reader = new SpzReader({ fileBytes: sourceBytes });
   await reader.parseHeader();
   const selectedFlags = new Uint8Array(reader.numSplats);
+  const alphas = new Float32Array(reader.numSplats);
   const centers = new Float32Array(reader.numSplats * 3);
+  const scales = new Float32Array(reader.numSplats * 3);
+  const coreKeys = new Set(request.selectedKeys);
   const overlapKeys = new Set(request.extractionKeys);
   const sourceTransform = composeTransformMatrix(request.sourceTransform ?? {});
+  const worldScaleMax = resolveWorldScaleMax(sourceTransform);
+  const resolution = request.voxelData.resolution;
+  const origin = request.voxelData.origin;
   const selector = createVoxelOverlapSelector({
     selectedKeys: overlapKeys,
     voxelData: request.voxelData,
@@ -238,10 +304,15 @@ async function collectSelectionPass({ sourceBytes, request, job }) {
       centers[offset + 1] = y;
       centers[offset + 2] = z;
     },
-    undefined,
+    (index, alpha) => {
+      alphas[index] = alpha;
+    },
     undefined,
     (index, scaleX, scaleY, scaleZ) => {
       const offset = index * 3;
+      scales[offset] = scaleX;
+      scales[offset + 1] = scaleY;
+      scales[offset + 2] = scaleZ;
       tempCenter.set(centers[offset], centers[offset + 1], centers[offset + 2]);
       tempScale.set(scaleX, scaleY, scaleZ);
       if (!selector(tempCenter, tempScale)) return;
@@ -249,52 +320,69 @@ async function collectSelectionPass({ sourceBytes, request, job }) {
     }
   );
 
-  const selectedCenters = [];
+  const selectedCandidates = [];
   for (let index = 0; index < selectedFlags.length; index += 1) {
     if (selectedFlags[index] !== 1) continue;
     const offset = index * 3;
     tempWorldCenter
       .set(centers[offset], centers[offset + 1], centers[offset + 2])
       .applyMatrix4(sourceTransform);
-    selectedCenters.push({
+    const centerKey = hashKey(
+      Math.floor((tempWorldCenter.x - origin.x) / resolution),
+      Math.floor((tempWorldCenter.y - origin.y) / resolution),
+      Math.floor((tempWorldCenter.z - origin.z) / resolution)
+    );
+    tempScale.set(scales[offset], scales[offset + 1], scales[offset + 2]);
+    selectedCandidates.push({
       index,
-      worldCenter: [tempWorldCenter.x, tempWorldCenter.y, tempWorldCenter.z]
+      worldCenter: [tempWorldCenter.x, tempWorldCenter.y, tempWorldCenter.z],
+      opacity: Math.max(0, toFiniteNumber(alphas[index], 0)),
+      centerInCore: coreKeys.has(centerKey),
+      centerInExtraction: overlapKeys.has(centerKey),
+      supportScore: estimateSupportScore({
+        extractionKeys: overlapKeys,
+        centerKey,
+        centerWorld: tempWorldCenter,
+        scale: tempScale,
+        origin,
+        resolution,
+        worldScaleMax,
+        overlapScale: request.overlap.overlapScale,
+        maxVoxelRadius: request.overlap.maxVoxelRadius
+      })
     });
   }
 
   const refinedFlags = new Uint8Array(reader.numSplats);
   const localBounds = new THREE.Box3().makeEmpty();
   let selectedCount = 0;
-  if (selectedCenters.length >= 128) {
-    const cellMap = createSelectedSplatCellMap({
-      worldCenters: selectedCenters,
-      resolution: request.voxelData.resolution,
-      origin: request.voxelData.origin
+  let retainedCandidates = selectedCandidates;
+  if (selectedCandidates.length >= 128) {
+    const refined = selectPrimaryActorSplatCandidateIndices(selectedCandidates, request.voxelData, {
+      coreSelectedKeys: coreKeys,
+      extractionKeys: overlapKeys
     });
-    const refined = selectPrimaryActorSplatCellKeys(cellMap, request.voxelData);
-    const keepKeys = refined.selectedKeys;
-
-    if (keepKeys instanceof Set && keepKeys.size > 0) {
-      for (const key of keepKeys) {
-        const bucket = cellMap.get(key);
-        if (!Array.isArray(bucket)) continue;
-        for (const index of bucket) {
-          if (refinedFlags[index] === 1) continue;
-          refinedFlags[index] = 1;
-          selectedCount += 1;
-          const offset = index * 3;
-          tempCenter.set(centers[offset], centers[offset + 1], centers[offset + 2]);
-          const radius = 1e-3;
-          localBounds.expandByPoint(tempCenter.clone().addScalar(radius));
-          localBounds.expandByPoint(tempCenter.clone().addScalar(-radius));
-        }
-      }
+    if (refined.selectedIndices.length > 0) {
+      const keep = new Set(refined.selectedIndices);
+      retainedCandidates = selectedCandidates.filter((entry) => keep.has(entry.index));
     }
   }
 
+  for (const candidate of retainedCandidates) {
+    if (refinedFlags[candidate.index] === 1) continue;
+    refinedFlags[candidate.index] = 1;
+    selectedCount += 1;
+    const offset = candidate.index * 3;
+    tempCenter.set(centers[offset], centers[offset + 1], centers[offset + 2]);
+    const radius = 1e-3;
+    localBounds.expandByPoint(tempCenter.clone().addScalar(radius));
+    localBounds.expandByPoint(tempCenter.clone().addScalar(-radius));
+  }
+
   if (selectedCount < 1) {
+    retainedCandidates = selectedCandidates;
     for (let index = 0; index < selectedFlags.length; index += 1) {
-      if (selectedFlags[index] !== 1) continue;
+      if (selectedFlags[index] !== 1 || refinedFlags[index] === 1) continue;
       refinedFlags[index] = 1;
       selectedCount += 1;
       const offset = index * 3;
@@ -316,7 +404,13 @@ async function collectSelectionPass({ sourceBytes, request, job }) {
     centers,
     localBounds,
     selectedCount,
-    sourceTransform
+    sourceTransform,
+    selectionStats: summarizeSplatCandidates(retainedCandidates, request.voxelData, {
+      extra: {
+        subsetMethod: 'scored-cells',
+        retainedCount: selectedCount
+      }
+    })
   };
 }
 
@@ -424,6 +518,10 @@ async function fitRigAndBindings({ selection, worldCenters, request, artifactDir
       skinWeightsUrl: `/artifacts/${selection.jobId}/skin-weights.bin`,
       rigPreset: request.rigPreset,
       defaultClip: request.defaultClip,
+      subsetFormat: ACTOR_CACHE_SUBSET_FORMAT,
+      subsetFormatVersion: ACTOR_CACHE_SUBSET_FORMAT_VERSION,
+      subsetMethod: selection.selectionStats?.subsetMethod ?? "unknown",
+      selectionStats: selection.selectionStats ?? null,
       sourceTransform: request.sourceTransform,
       alignment: serializeAlignment(alignment),
       boneLocalTransforms: serializeBoneLocalTransforms(bones),

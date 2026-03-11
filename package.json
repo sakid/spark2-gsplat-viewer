@@ -16,6 +16,7 @@
     "test:deform-smoke": "node scripts/deform-smoke.mjs",
     "test:voxel-segmentation-smoke": "node scripts/voxel-segmentation-smoke.mjs",
     "test:default-actor-smoke": "node scripts/default-actor-smoke.mjs",
+    "test:actor-diagnostic": "node scripts/actor-extraction-diagnostic.mjs",
     "convert:ply-to-spz": "tsx scripts/convert-ply-to-spz.mts",
     "convert:proxy": "tsx scripts/convert-proxy-mesh.mts",
     "actor-cache-server": "tsx scripts/actor-cache-server.mts"

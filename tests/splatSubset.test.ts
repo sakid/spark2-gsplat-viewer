@@ -2,9 +2,13 @@ import * as THREE from 'three';
 import { describe, expect, test } from 'vitest';
 import {
   buildSplatSubsetMeshFromVoxelKeys,
-  collectSplatIndicesForVoxelKeys
+  collectSplatIndicesForVoxelKeys,
+  collectSplatSelectionForVoxelKeys
 } from '../src/js/internal/splatSubset';
-import { selectPrimaryActorSplatCellKeys } from '../src/js/internal/splatActorSelection';
+import {
+  selectPrimaryActorSplatCandidateIndices,
+  selectPrimaryActorSplatCellKeys
+} from '../src/js/internal/splatActorSelection';
 
 function createSourceMesh({
   splats,
@@ -12,7 +16,7 @@ function createSourceMesh({
   packedSplats = null,
   extSplats = null
 }: {
-  splats: Array<{ center: THREE.Vector3; opacity?: number; color?: THREE.Color }>;
+  splats: Array<{ center: THREE.Vector3; opacity?: number; color?: THREE.Color; scales?: THREE.Vector3 }>;
   matrixWorld?: THREE.Matrix4;
   packedSplats?: Record<string, unknown> | null;
   extSplats?: Record<string, unknown> | null;
@@ -32,7 +36,7 @@ function createSourceMesh({
         callback(
           index,
           splat.center,
-          new THREE.Vector3(1, 1, 1),
+          splat.scales ?? new THREE.Vector3(1, 1, 1),
           new THREE.Quaternion(),
           splat.opacity ?? 1,
           splat.color ?? new THREE.Color(1, 1, 1)
@@ -82,6 +86,7 @@ describe('splatSubset', () => {
         SplatMesh: PushSplatMesh
       },
       selectedKeys: new Set(['0,0,0', '2,1,0']),
+      extractionKeys: new Set(['0,0,0', '2,1,0']),
       voxelData: {
         resolution: 0.5,
         origin: { x: 1, y: 2, z: 3 }
@@ -166,6 +171,7 @@ describe('splatSubset', () => {
         SplatMesh: PackedSplatMesh
       },
       selectedKeys: new Set(['0,0,0', '2,0,0']),
+      extractionKeys: new Set(['0,0,0', '2,0,0']),
       voxelData: {
         resolution: 1,
         origin: { x: 0, y: 0, z: 0 }
@@ -199,6 +205,7 @@ describe('splatSubset', () => {
     const indices = collectSplatIndicesForVoxelKeys({
       sourceMesh,
       selectedKeys: new Set(['0,0,0']),
+      extractionKeys: new Set(['0,0,0']),
       voxelData: {
         resolution: 0.5,
         origin: { x: 0, y: 0, z: 0 }
@@ -227,5 +234,52 @@ describe('splatSubset', () => {
     });
 
     expect(Array.from(selection.selectedKeys)).toEqual(['0,0,0', '0,1,0', '0,2,0']);
+  });
+
+  test('score-based selection drops sparse fringe splats while keeping dense actor cells', () => {
+    const candidates = [
+      { index: 0, worldCenter: [0, 0, 0], opacity: 0.9, centerInCore: true, centerInExtraction: true, supportScore: 1 },
+      { index: 1, worldCenter: [0, 1, 0], opacity: 0.95, centerInCore: true, centerInExtraction: true, supportScore: 1 },
+      { index: 2, worldCenter: [0, 2, 0], opacity: 0.92, centerInCore: false, centerInExtraction: true, supportScore: 0.8 },
+      { index: 3, worldCenter: [5, 0, 0], opacity: 0.15, centerInCore: false, centerInExtraction: true, supportScore: 0.2 },
+      { index: 4, worldCenter: [6, 0, 0], opacity: 0.12, centerInCore: false, centerInExtraction: true, supportScore: 0.2 }
+    ];
+
+    const result = selectPrimaryActorSplatCandidateIndices(candidates, {
+      resolution: 1,
+      origin: { x: 0, y: 0, z: 0 }
+    }, {
+      coreSelectedKeys: new Set(['0,0,0', '0,1,0']),
+      extractionKeys: new Set(['0,0,0', '0,1,0', '0,2,0', '5,0,0', '6,0,0'])
+    });
+
+    expect(result.selectedIndices).toEqual([0, 1, 2]);
+  });
+
+  test('reports scored selection stats for retained splats', () => {
+    const sourceMesh = createSourceMesh({
+      splats: [
+        { center: new THREE.Vector3(0, 0, 0), opacity: 0.9 },
+        { center: new THREE.Vector3(0, 1, 0), opacity: 0.95 },
+        { center: new THREE.Vector3(0, 2, 0), opacity: 0.93 },
+        { center: new THREE.Vector3(5, 0, 0), opacity: 0.1 },
+        { center: new THREE.Vector3(6, 0, 0), opacity: 0.1 }
+      ]
+    });
+
+    const selection = collectSplatSelectionForVoxelKeys({
+      sourceMesh,
+      selectedKeys: new Set(['0,0,0', '0,1,0']),
+      extractionKeys: new Set(['0,0,0', '0,1,0', '0,2,0', '5,0,0', '6,0,0']),
+      voxelData: {
+        resolution: 1,
+        origin: { x: 0, y: 0, z: 0 }
+      },
+      overlapScale: 0
+    });
+
+    expect(selection.selectedIndices).toEqual([0, 1, 2]);
+    expect(selection.selectionStats.subsetMethod).toBe('scored-cells');
+    expect(selection.selectionStats.retainedCount).toBe(3);
   });
 });

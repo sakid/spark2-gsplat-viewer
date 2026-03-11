@@ -9,6 +9,7 @@ import { applySparkCovOnlyPatch } from './internal/patchSparkCovOnly';
 import { applySelectionClick, pickSelectionObject } from './internal/selectionPicking';
 import { loadSplatFromFile, loadSplatFromUrl } from './internal/splatLoaders';
 import { buildSplatSubsetMeshFromVoxelKeys } from './internal/splatSubset';
+import { summarizeSplatMesh } from './internal/splatDiagnostics';
 import { normalizeSplatMeshCounts } from './internal/splatMeshCounts';
 import { DEFAULT_BOOT_SPLAT_URL, FALLBACK_SPLAT_URL } from './internal/startupAssets';
 import { createActorCacheClient } from './internal/actorCacheClient';
@@ -181,6 +182,7 @@ export class SceneManager {
       error: null,
       manifestUrl: null
     };
+    this.diagnosticPreview = null;
   }
 
   async init() {
@@ -1042,6 +1044,177 @@ export class SceneManager {
     return { request, sourceFile: null };
   }
 
+  clearDiagnosticPreview() {
+    const preview = this.diagnosticPreview;
+    if (!preview) return;
+    if (preview.mesh) {
+      this.clearManagedWorldMask(preview.mesh);
+      preview.mesh.removeFromParent?.();
+      preview.mesh.dispose?.();
+    }
+    if (preview.environment?.splatMesh && typeof preview.environmentVisible === 'boolean') {
+      preview.environment.splatMesh.visible = preview.environmentVisible;
+    }
+    this.diagnosticPreview = null;
+  }
+
+  focusDiagnosticObject(object, frameObject = object) {
+    this.eventBus.emit('selectionChanged', {
+      target: 'object',
+      uuids: object?.uuid ? [object.uuid] : [],
+      object: object ?? null,
+      frameObject: frameObject ?? object ?? null
+    });
+    this.eventBus.emit('selection:focusRequested');
+  }
+
+  async previewActorDiagnosticVariant({ variant = 'subset-direct' } = {}) {
+    this.syncVoxelEditData();
+    const environment = this.findEnvironmentEntity();
+    const voxelData = this.voxelEditState.getVoxelData();
+    if (!environment?.splatMesh || !voxelData || environment?.proxyKind !== 'voxel') {
+      throw new Error('Generate a voxel proxy before running actor diagnostics.');
+    }
+
+    const selectedKeys = this.getSelectedVoxelKeys(voxelData);
+    if (selectedKeys.size < 1) {
+      throw new Error('Select voxels before running actor diagnostics.');
+    }
+
+    const extractionKeys = this.expandSelectedVoxelKeys(voxelData, selectedKeys, {
+      radius: DEFAULT_ACTOR_CACHE_REQUEST.selectionExpansionRadius,
+      maxScale: DEFAULT_ACTOR_CACHE_REQUEST.selectionExpansionMaxScale
+    });
+
+    this.clearDiagnosticPreview();
+    const environmentVisible = Boolean(environment.splatMesh.visible);
+
+    if (variant === 'source-full') {
+      environment.splatMesh.visible = true;
+      this.focusDiagnosticObject(environment.splatMesh);
+      return {
+        variant,
+        stats: summarizeSplatMesh(environment.splatMesh, voxelData, {
+          label: variant,
+          extra: {
+            selectionCount: selectedKeys.size,
+            extractionCount: extractionKeys.size
+          }
+        })
+      };
+    }
+
+    if (variant === 'masked-fallback') {
+      const nonSelectedKeys = [];
+      for (const key of voxelData.occupiedKeys) {
+        if (!extractionKeys.has(key)) nonSelectedKeys.push(key);
+      }
+      const mesh = await this.cloneSplatForExtraction(environment.splatMesh, environment?.splatSource ?? null);
+      const actorMaskBoxes = mergeVoxelKeysToBoxes(nonSelectedKeys, voxelData.resolution, voxelData.origin);
+      this.applyManagedWorldMask(mesh, actorMaskBoxes);
+      this.scene.add(mesh);
+      environment.splatMesh.visible = false;
+      this.diagnosticPreview = { mesh, environment, environmentVisible };
+      this.focusDiagnosticObject(mesh);
+      return {
+        variant,
+        stats: summarizeSplatMesh(mesh, voxelData, {
+          label: variant,
+          extra: {
+            selectionCount: selectedKeys.size,
+            extractionCount: extractionKeys.size
+          }
+        })
+      };
+    }
+
+    if (variant === 'subset-direct') {
+      const subset = await buildSplatSubsetMeshFromVoxelKeys({
+        sourceMesh: environment.splatMesh,
+        sparkModule: this.sparkModule,
+        selectedKeys,
+        extractionKeys,
+        voxelData
+      });
+      const mesh = subset.mesh;
+      if (!mesh) throw new Error('Direct subset extraction returned no mesh.');
+      this.configureExtractedSplatMesh(mesh, environment.splatMesh);
+      this.scene.add(mesh);
+      environment.splatMesh.visible = false;
+      this.diagnosticPreview = { mesh, environment, environmentVisible };
+      this.focusDiagnosticObject(mesh);
+      return {
+        variant,
+        stats: summarizeSplatMesh(mesh, voxelData, {
+          label: variant,
+          extra: {
+            subsetMethod: subset.selectionStats?.subsetMethod ?? subset.method,
+            selectionStats: subset.selectionStats ?? null
+          }
+        })
+      };
+    }
+
+    if (variant === 'subset-reloaded') {
+      const { request, sourceFile } = this.buildActorCacheRequest(environment, voxelData, selectedKeys, extractionKeys);
+      const submitted = await this.actorCacheClient.submitJob(request, sourceFile);
+      const finalState = submitted?.status === 'done'
+        ? submitted
+        : await this.actorCacheClient.waitForJob(submitted?.jobId);
+      if (!finalState?.manifestUrl) {
+        throw new Error(finalState?.error || 'Actor cache did not return a manifest URL.');
+      }
+      const manifest = await this.actorCacheClient.fetchManifest(finalState.manifestUrl);
+      const mesh = await loadSplatFromUrl({
+        url: manifest.actorSpzUrl,
+        scene: this.scene,
+        sparkModule: this.sparkModule,
+        previousMesh: null
+      });
+      this.configureExtractedSplatMesh(mesh, environment.splatMesh, manifest.sourceTransform);
+      environment.splatMesh.visible = false;
+      this.diagnosticPreview = { mesh, environment, environmentVisible };
+      this.focusDiagnosticObject(mesh);
+      return {
+        variant,
+        manifest,
+        stats: summarizeSplatMesh(mesh, voxelData, {
+          label: variant,
+          extra: {
+            subsetMethod: manifest.subsetMethod,
+            subsetFormat: manifest.subsetFormat,
+            subsetFormatVersion: manifest.subsetFormatVersion,
+            selectionStats: manifest.selectionStats
+          }
+        })
+      };
+    }
+
+    if (variant === 'actor-cached') {
+      await this.preprocessSelectedVoxelActor();
+      const actor = this.entities.filter((entity) => entity?.constructor?.name === 'VoxelSplatActor').at(-1) ?? null;
+      if (!actor?.splatMesh) {
+        throw new Error('Cached actor preview did not create a VoxelSplatActor.');
+      }
+      actor.setProxyVisible(false);
+      this.focusDiagnosticObject(actor.root ?? actor.splatMesh, actor.focusFrameObject ?? actor.splatMesh);
+      return {
+        variant,
+        manifest: actor.actorCacheData?.manifest ?? null,
+        animation: actor.voxelRuntime?.getAnimationState?.() ?? null,
+        stats: summarizeSplatMesh(actor.splatMesh, voxelData, {
+          label: variant,
+          extra: {
+            subsetMethod: actor.actorCacheData?.manifest?.subsetMethod ?? 'unknown',
+            selectionStats: actor.actorCacheData?.manifest?.selectionStats ?? null
+          }
+        })
+      };
+    }
+
+    throw new Error(`Unknown diagnostic variant: ${variant}`);
+  }
+
   async finalizeExtractedActor({
     environment,
     voxelData,
@@ -1243,7 +1416,8 @@ export class SceneManager {
         const subsetResult = await buildSplatSubsetMeshFromVoxelKeys({
           sourceMesh: environment.splatMesh,
           sparkModule: this.sparkModule,
-          selectedKeys: extractionKeys,
+          selectedKeys,
+          extractionKeys,
           voxelData
         });
         extractedSplatCount = subsetResult?.splatCount ?? 0;
