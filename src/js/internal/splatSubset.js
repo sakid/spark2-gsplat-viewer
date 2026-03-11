@@ -1,10 +1,15 @@
 import * as THREE from 'three';
 import { normalizeSplatMeshCounts } from './splatMeshCounts';
 import { createVoxelOverlapSelector, normalizeVoxelOrigin } from './splatSelection';
+import {
+  createSelectedSplatCellMap,
+  selectPrimaryActorSplatCellKeys
+} from './splatActorSelection';
 
 const SPARK_SPLAT_TEXTURE_WIDTH = 2048;
 const DEFAULT_OVERLAP_SCALE = 2.0;
 const DEFAULT_MAX_VOXEL_RADIUS = 2;
+const tempWorldCenter = new THREE.Vector3();
 
 function toFiniteNumber(value, fallback = 0) {
   const number = Number(value);
@@ -164,7 +169,7 @@ export function collectSplatIndicesForVoxelKeys({
     throw new Error('Source splat mesh does not support forEachSplat iteration.');
   }
 
-  const indices = [];
+  const selectedCenters = [];
 
   sourceMesh.updateMatrixWorld?.(true);
   const worldMatrix = sourceMesh.matrixWorld instanceof THREE.Matrix4
@@ -183,11 +188,40 @@ export function collectSplatIndicesForVoxelKeys({
 
   sourceMesh.forEachSplat((index, center, scales) => {
     if (selector(center, scales)) {
-      indices.push(index);
+      tempWorldCenter.copy(center).applyMatrix4(worldMatrix);
+      selectedCenters.push({
+        index,
+        worldCenter: [tempWorldCenter.x, tempWorldCenter.y, tempWorldCenter.z]
+      });
     }
   });
 
-  return indices;
+  if (selectedCenters.length < 1) {
+    return [];
+  }
+  if (selectedCenters.length < 128) {
+    return selectedCenters.map((entry) => entry.index);
+  }
+
+  const cellMap = createSelectedSplatCellMap({
+    worldCenters: selectedCenters,
+    resolution: voxelData?.resolution,
+    origin: voxelData?.origin
+  });
+  const refined = selectPrimaryActorSplatCellKeys(cellMap, voxelData);
+  const keepKeys = refined.selectedKeys;
+  if (!(keepKeys instanceof Set) || keepKeys.size < 1) {
+    return selectedCenters.map((entry) => entry.index);
+  }
+
+  const refinedIndices = [];
+  for (const key of keepKeys) {
+    const bucket = cellMap.get(key);
+    if (!Array.isArray(bucket)) continue;
+    for (const index of bucket) refinedIndices.push(index);
+  }
+
+  return refinedIndices.length > 0 ? refinedIndices : selectedCenters.map((entry) => entry.index);
 }
 
 export async function buildSplatSubsetMeshFromVoxelKeys({

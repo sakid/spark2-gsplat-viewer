@@ -25,6 +25,10 @@ import { computeProxyAlignment } from '../../src/js/internal/proxyAlign.js';
 import { fitHumanoidRigToVoxelData } from '../../src/js/internal/voxelPoseFitter.js';
 import { loadProxyFromFile } from '../../src/js/internal/proxyLoader.js';
 import { computeSplatBoneBindingArrays } from '../../src/js/proxy/skinBinding.js';
+import {
+  createSelectedSplatCellMap,
+  selectPrimaryActorSplatCellKeys
+} from '../../src/js/internal/splatActorSelection.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../..');
@@ -213,17 +217,15 @@ async function collectSelectionPass({ sourceBytes, request, job }) {
   await reader.parseHeader();
   const selectedFlags = new Uint8Array(reader.numSplats);
   const centers = new Float32Array(reader.numSplats * 3);
-  const selectedKeys = new Set(request.extractionKeys);
+  const overlapKeys = new Set(request.extractionKeys);
   const sourceTransform = composeTransformMatrix(request.sourceTransform ?? {});
   const selector = createVoxelOverlapSelector({
-    selectedKeys,
+    selectedKeys: overlapKeys,
     voxelData: request.voxelData,
     worldMatrix: sourceTransform,
     overlapScale: request.overlap.overlapScale,
     maxVoxelRadius: request.overlap.maxVoxelRadius
   });
-  const localBounds = new THREE.Box3().makeEmpty();
-  let selectedCount = 0;
 
   job.status = 'running';
   job.stage = 'select-splats';
@@ -244,12 +246,64 @@ async function collectSelectionPass({ sourceBytes, request, job }) {
       tempScale.set(scaleX, scaleY, scaleZ);
       if (!selector(tempCenter, tempScale)) return;
       selectedFlags[index] = 1;
+    }
+  );
+
+  const selectedCenters = [];
+  for (let index = 0; index < selectedFlags.length; index += 1) {
+    if (selectedFlags[index] !== 1) continue;
+    const offset = index * 3;
+    tempWorldCenter
+      .set(centers[offset], centers[offset + 1], centers[offset + 2])
+      .applyMatrix4(sourceTransform);
+    selectedCenters.push({
+      index,
+      worldCenter: [tempWorldCenter.x, tempWorldCenter.y, tempWorldCenter.z]
+    });
+  }
+
+  const refinedFlags = new Uint8Array(reader.numSplats);
+  const localBounds = new THREE.Box3().makeEmpty();
+  let selectedCount = 0;
+  if (selectedCenters.length >= 128) {
+    const cellMap = createSelectedSplatCellMap({
+      worldCenters: selectedCenters,
+      resolution: request.voxelData.resolution,
+      origin: request.voxelData.origin
+    });
+    const refined = selectPrimaryActorSplatCellKeys(cellMap, request.voxelData);
+    const keepKeys = refined.selectedKeys;
+
+    if (keepKeys instanceof Set && keepKeys.size > 0) {
+      for (const key of keepKeys) {
+        const bucket = cellMap.get(key);
+        if (!Array.isArray(bucket)) continue;
+        for (const index of bucket) {
+          if (refinedFlags[index] === 1) continue;
+          refinedFlags[index] = 1;
+          selectedCount += 1;
+          const offset = index * 3;
+          tempCenter.set(centers[offset], centers[offset + 1], centers[offset + 2]);
+          const radius = 1e-3;
+          localBounds.expandByPoint(tempCenter.clone().addScalar(radius));
+          localBounds.expandByPoint(tempCenter.clone().addScalar(-radius));
+        }
+      }
+    }
+  }
+
+  if (selectedCount < 1) {
+    for (let index = 0; index < selectedFlags.length; index += 1) {
+      if (selectedFlags[index] !== 1) continue;
+      refinedFlags[index] = 1;
       selectedCount += 1;
-      const radius = Math.max(Math.abs(scaleX), Math.abs(scaleY), Math.abs(scaleZ), 1e-5);
+      const offset = index * 3;
+      tempCenter.set(centers[offset], centers[offset + 1], centers[offset + 2]);
+      const radius = 1e-3;
       localBounds.expandByPoint(tempCenter.clone().addScalar(radius));
       localBounds.expandByPoint(tempCenter.clone().addScalar(-radius));
     }
-  );
+  }
 
   return {
     header: {
@@ -258,7 +312,7 @@ async function collectSelectionPass({ sourceBytes, request, job }) {
       fractionalBits: reader.fractionalBits,
       flagAntiAlias: reader.flagAntiAlias
     },
-    selectedFlags,
+    selectedFlags: refinedFlags,
     centers,
     localBounds,
     selectedCount,

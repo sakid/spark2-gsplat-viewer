@@ -4,6 +4,7 @@ import {
   buildSplatSubsetMeshFromVoxelKeys,
   collectSplatIndicesForVoxelKeys
 } from '../src/js/internal/splatSubset';
+import { selectPrimaryActorSplatCellKeys } from '../src/js/internal/splatActorSelection';
 
 function createSourceMesh({
   splats,
@@ -207,5 +208,24 @@ describe('splatSubset', () => {
     });
 
     expect(indices).toEqual([0]);
+  });
+
+  test('selects the actor-like center-cell cluster over a flat floor cluster', () => {
+    const cellMap = new Map([
+      ['0,0,0', [0]],
+      ['0,1,0', [1]],
+      ['0,2,0', [2]],
+      ['3,0,0', [3]],
+      ['4,0,0', [4]],
+      ['5,0,0', [5]],
+      ['6,0,0', [6]]
+    ]);
+
+    const selection = selectPrimaryActorSplatCellKeys(cellMap, {
+      resolution: 1,
+      origin: { x: 0, y: 0, z: 0 }
+    });
+
+    expect(Array.from(selection.selectedKeys)).toEqual(['0,0,0', '0,1,0', '0,2,0']);
   });
 });

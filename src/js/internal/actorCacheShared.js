@@ -1,6 +1,6 @@
 export const ACTOR_CACHE_SERVER_ORIGIN = 'http://127.0.0.1:3210';
 export const ACTOR_CACHE_SERVER_TIMEOUT_MS = 120_000;
-export const ACTOR_CACHE_MANIFEST_VERSION = 1;
+export const ACTOR_CACHE_MANIFEST_VERSION = 2;
 export const STANDARD_HUMANOID_RIG_PRESET = 'xbot-v1';
 export const STANDARD_HUMANOID_RIG_FILE_NAME = 'xbot_humanoid.glb';
 export const STANDARD_HUMANOID_RIG_URL = `/assets/proxies/${STANDARD_HUMANOID_RIG_FILE_NAME}`;
@@ -126,6 +126,7 @@ export function buildActorCacheJobKey({
     resolution: Math.max(1e-6, toFiniteNumber(voxelData?.resolution, 1))
   };
   return JSON.stringify({
+    version: ACTOR_CACHE_MANIFEST_VERSION,
     sourceHash: String(sourceHash ?? ''),
     selectedKeys: selected,
     extractionKeys: keys,
