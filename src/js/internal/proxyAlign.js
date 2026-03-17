@@ -61,10 +61,15 @@ function getSplatWorldBounds(mesh, out) {
   mesh.updateMatrixWorld(true);
 
   if (typeof mesh.getBoundingBox === 'function') {
-    const bounds = mesh.getBoundingBox(false);
-    if (bounds && !bounds.isEmpty()) {
-      out.copy(bounds).applyMatrix4(mesh.matrixWorld);
-      return !out.isEmpty();
+    try {
+      const bounds = mesh.getBoundingBox(false);
+      if (bounds && !bounds.isEmpty()) {
+        out.copy(bounds).applyMatrix4(mesh.matrixWorld);
+        return !out.isEmpty();
+      }
+    } catch {
+      // Some meshes expose splats without packed/ext bounds support.
+      // Fall back to generic object bounds so alignment can proceed.
     }
   }
 

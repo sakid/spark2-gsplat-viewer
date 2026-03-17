@@ -18,11 +18,26 @@ const findInRoot = (root, id) => {
   return document.getElementById(id);
 };
 
+const readPresentationFlags = () => {
+  if (typeof window === 'undefined') {
+    return { devUiEnabled: true };
+  }
+  const params = new URLSearchParams(window.location.search);
+  return {
+    devUiEnabled: params.get('devUi') === '1'
+  };
+};
+
 // NEW PROXY ANIMATION
 async function bootstrap() {
   const app = document.getElementById('app');
   if (!(app instanceof HTMLElement)) {
     throw new Error('Missing #app element.');
+  }
+
+  const presentationFlags = readPresentationFlags();
+  if (!presentationFlags.devUiEnabled) {
+    document.body.classList.add('presentation-mode');
   }
 
   const bootstrapContainer = document.createElement('div');
@@ -32,6 +47,9 @@ async function bootstrap() {
 
   const bootstrapStatus = document.createElement('p');
   bootstrapStatus.role = 'status';
+  if (!presentationFlags.devUiEnabled) {
+    bootstrapStatus.className = 'presentation-status';
+  }
 
   app.replaceChildren(bootstrapContainer, bootstrapStatus);
 
@@ -39,9 +57,18 @@ async function bootstrap() {
   const statusReporter = createStatusReporter(bootstrapStatus);
   statusReporter.setStatus('Initializing SPARK 2.0 proxy-driven engine...', 'info');
 
-  const sceneManager = new SceneManager({ container: bootstrapContainer, eventBus, statusReporter });
+  const sceneManager = new SceneManager({
+    container: bootstrapContainer,
+    eventBus,
+    statusReporter,
+    presentationMode: !presentationFlags.devUiEnabled
+  });
   await sceneManager.init();
-  const disposeEditor = initDockviewEditor(sceneManager, eventBus);
+  let disposeEditor = null;
+  if (presentationFlags.devUiEnabled) {
+    disposeEditor = initDockviewEditor(sceneManager, eventBus);
+    statusReporter.resync();
+  }
   const canvas = sceneManager.getCanvas();
 
   const syncSlotOptions = (root = null, preferred = null) => {
@@ -78,7 +105,11 @@ async function bootstrap() {
     sceneEventDisposers.push(dispose);
   };
 
-  onEvent('ui:controlsReady', (payload) => syncSlotOptions(payload?.root ?? null));
+  onEvent('ui:controlsReady', (payload) => {
+    const root = payload?.root ?? null;
+    syncSlotOptions(root);
+    statusReporter.resync(root);
+  });
   onEvent('scene:slotsRefreshRequested', (payload) => syncSlotOptions(payload?.root ?? null));
 
   onEvent('scene:saveFileRequested', (payload) => {
@@ -149,10 +180,23 @@ async function bootstrap() {
     }
   });
 
+  onEvent('status:message', (payload) => {
+    const text = payload?.text;
+    if (!text) return;
+    const kind = payload?.kind === 'error' ? 'error' : payload?.kind === 'warning' ? 'warning' : 'info';
+    statusReporter.setStatus(String(text), kind);
+  });
+
   syncSlotOptions();
 
   if (import.meta.env.DEV) {
     window.__SPARK2_DEBUG__ = { sceneManager, eventBus };
+  }
+
+  if (!presentationFlags.devUiEnabled) {
+    eventBus.emit('environment:viewMode', 'splats-only');
+    eventBus.emit('lights:presentation', { enabled: true, speed: 0.08 });
+    eventBus.emit('environment:presentation', { enabled: true, speed: 0.06 });
   }
 
   const relayDom = (eventName, target = window, options) => {

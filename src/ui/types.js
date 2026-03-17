@@ -19,8 +19,10 @@
 
 /**
  * @typedef {Object} SelectionPayload
+ * @property {'object'|'player'|'world'} [target]
  * @property {string[]} uuids
  * @property {any} object
+ * @property {string} [label]
  */
 
 /**
