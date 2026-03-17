@@ -27,6 +27,9 @@ export class GeneralLights {
     this.showProbesRequested = true;
     this.showHelpersRequested = true;
     this.showGizmosRequested = true;
+    this.presentationMode = false;
+    this.presentationYaw = 0;
+    this.presentationYawSpeed = 0.12;
   }
 
   async init(context) {
@@ -38,7 +41,11 @@ export class GeneralLights {
     this.key.position.set(5, 8, 2);
     this.key.castShadow = true;
     this.key.shadow.mapSize.set(1024, 1024);
-    this.lightRoot.add(this.ambient, this.key, this.key.target);
+    this.fill = new THREE.DirectionalLight(0xfff1dd, 0.0);
+    this.fill.position.set(-6, 4, 4);
+    this.rim = new THREE.DirectionalLight(0xc7e4ff, 0.0);
+    this.rim.position.set(-2, 6, -7);
+    this.lightRoot.add(this.ambient, this.key, this.key.target, this.fill, this.fill.target, this.rim, this.rim.target);
     context.scene.add(this.lightRoot);
 
     this.keyHelper = new THREE.DirectionalLightHelper(this.key, 0.75, 0xfef08a);
@@ -62,6 +69,9 @@ export class GeneralLights {
       this.showGizmosRequested = Boolean(enabled);
       this.applyOverlayVisibility();
     });
+    on('lights:presentation', (payload) => {
+      this.setPresentationMode(payload);
+    });
     on('lights:showMovementControls', () => {});
     on('environment:viewMode', (mode) => {
       this.viewMode = mode === 'splats-only' ? 'splats-only' : 'full';
@@ -77,14 +87,40 @@ export class GeneralLights {
     this.applyOverlayVisibility();
   }
 
+  setPresentationMode(payload = {}) {
+    const enabled = typeof payload === 'boolean' ? payload : Boolean(payload.enabled);
+    this.presentationMode = enabled;
+    if (payload && typeof payload === 'object' && Number.isFinite(Number(payload.speed))) {
+      this.presentationYawSpeed = Math.max(0, Number(payload.speed) || 0);
+    }
+    if (enabled) {
+      this.ambient.intensity = 0.45;
+      this.key.intensity = 2.3;
+      this.fill.intensity = 1.2;
+      this.rim.intensity = 1.6;
+    } else {
+      this.ambient.intensity = 0.5;
+      this.key.intensity = 2.8;
+      this.fill.intensity = 0.0;
+      this.rim.intensity = 0.0;
+      this.presentationYaw = 0;
+      if (this.lightRoot) this.lightRoot.rotation.y = 0;
+    }
+    this.applyOverlayVisibility();
+  }
+
   applyOverlayVisibility() {
-    const visible = this.viewMode !== 'splats-only';
+    const visible = this.viewMode !== 'splats-only' && !this.presentationMode;
     if (this.probeRig) this.probeRig.visible = this.showProbesRequested && visible;
     if (this.keyHelper) this.keyHelper.visible = this.showHelpersRequested && visible;
     if (this.gizmo) this.gizmo.visible = this.showGizmosRequested && visible;
   }
 
   update(delta) {
+    if (this.presentationMode && this.lightRoot) {
+      this.presentationYaw += Math.max(0, Number(delta) || 0) * this.presentationYawSpeed;
+      this.lightRoot.rotation.y = this.presentationYaw;
+    }
     if (this.context.camera) {
       this.probeRig.position.x = this.context.camera.position.x * 0.2;
       this.probeRig.position.z = this.context.camera.position.z * 0.2;

@@ -45,6 +45,31 @@ function toTuple4(quaternion) {
   return [quaternion.x, quaternion.y, quaternion.z, quaternion.w];
 }
 
+function boundsJsonToBox3(bounds) {
+  if (!bounds?.min || !bounds?.max) return null;
+  const min = new THREE.Vector3(
+    Number(bounds.min.x) || 0,
+    Number(bounds.min.y) || 0,
+    Number(bounds.min.z) || 0
+  );
+  const max = new THREE.Vector3(
+    Number(bounds.max.x) || 0,
+    Number(bounds.max.y) || 0,
+    Number(bounds.max.z) || 0
+  );
+  return new THREE.Box3(min, max);
+}
+
+function createFocusFrameObject(bounds) {
+  const box = boundsJsonToBox3(bounds);
+  if (!box || box.isEmpty()) return null;
+  return {
+    getBoundingBox() {
+      return box.clone();
+    }
+  };
+}
+
 function parseLoadedName(raw) {
   if (!raw) return null;
   const normalized = String(raw).replace(/^Loaded:\s*/i, '').trim();
@@ -123,7 +148,7 @@ function isTextEntryTarget(target) {
 
 // NEW PROXY ANIMATION
 export class SceneManager {
-  constructor({ container, eventBus, statusReporter }) {
+  constructor({ container, eventBus, statusReporter, presentationMode = false }) {
     this.container = container;
     this.eventBus = eventBus;
     this.setStatus = statusReporter.setStatus;
@@ -159,7 +184,11 @@ export class SceneManager {
     this.worldMaskByMesh = new Map();
     this.voxelEditState = new VoxelEditState();
     this.voxelEditStateDispose = this.voxelEditState.onChange(() => this.handleVoxelEditStateChanged());
+    this.presentationMode = Boolean(presentationMode);
     this.sceneBootstrapFlags = readSceneBootstrapFlags();
+    if (this.presentationMode) {
+      this.sceneBootstrapFlags.autoDefaultScene = false;
+    }
     this.defaultSceneBootstrapPromise = null;
     this.snapSettings = {
       enabled: true,
@@ -1091,16 +1120,28 @@ export class SceneManager {
 
     if (variant === 'source-full') {
       environment.splatMesh.visible = true;
-      this.focusDiagnosticObject(environment.splatMesh);
+      const packedCount = Number(environment.splatMesh?.packedSplats?.numSplats ?? 0);
+      const extCount = Number(environment.splatMesh?.extSplats?.numSplats ?? 0);
+      const meshCount = Number(
+        environment.splatMesh?.numSplats
+          ?? environment.splatMesh?.splatCount
+          ?? Math.max(packedCount, extCount, 0)
+      );
       return {
         variant,
-        stats: summarizeSplatMesh(environment.splatMesh, voxelData, {
+        stats: {
           label: variant,
-          extra: {
-            selectionCount: selectedKeys.size,
-            extractionCount: extractionKeys.size
-          }
-        })
+          meshCount,
+          sampledCount: 0,
+          packedCount,
+          extCount,
+          bounds: null,
+          opacity: null,
+          scale: null,
+          density: null,
+          selectionCount: selectedKeys.size,
+          extractionCount: extractionKeys.size
+        }
       };
     }
 

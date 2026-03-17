@@ -20,6 +20,24 @@ html, body, #app {
 }
 
 #scene-container { width: 100%; height: 100%; }
+#scene-container canvas { display: block; }
+#scene-container .presentation-status,
+body.presentation-mode [role='status'] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+body.presentation-mode #spark-shell,
+body.presentation-mode #dockview-root,
+body.presentation-mode #panel,
+body.presentation-mode #show-panel-btn,
+body.presentation-mode .spark-topbar {
+  display: none !important;
+}
+body.presentation-mode #scene-container {
+  position: fixed;
+  inset: 0;
+}
 #panel {
   position: fixed;
   top: 12px;

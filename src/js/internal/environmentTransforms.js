@@ -52,6 +52,9 @@ export class EnvironmentTransforms {
     this.splatManualOffset = new THREE.Vector3();
     this.splatManualQuaternion = new THREE.Quaternion();
     this.splatManualScale = 1;
+    this.splatPresentationOffset = new THREE.Vector3();
+    this.splatPresentationQuaternion = new THREE.Quaternion();
+    this.splatPresentationScale = 1;
     this.proxyAlignOffset = new THREE.Vector3();
     this.proxyAlignScale = 1;
     this.proxyAlignQuaternion = new THREE.Quaternion();
@@ -75,6 +78,9 @@ export class EnvironmentTransforms {
     this.splatManualOffset.set(0, 0, 0);
     this.splatManualQuaternion.identity();
     this.splatManualScale = 1;
+    this.splatPresentationOffset.set(0, 0, 0);
+    this.splatPresentationQuaternion.identity();
+    this.splatPresentationScale = 1;
   }
 
   clearProxy() {
@@ -98,14 +104,26 @@ export class EnvironmentTransforms {
     else this.splatManualQuaternion.identity();
   }
 
+  setSplatPresentationAlignment({ offset, scale, quaternion } = {}) {
+    this.splatPresentationOffset.copy(offset ?? new THREE.Vector3());
+    this.splatPresentationScale = Number.isFinite(scale) ? Math.max(scale, 1e-4) : 1;
+    if (quaternion instanceof THREE.Quaternion) this.splatPresentationQuaternion.copy(quaternion);
+    else this.splatPresentationQuaternion.identity();
+  }
+
   applySplat(mesh, parent = null) {
     if (!mesh || !this.splatBase) return;
     tempQuat.copy(this.splatBase.quaternion);
     tempQuat.multiply(this.splatManualQuaternion);
+    tempQuat.multiply(this.splatPresentationQuaternion);
     if (this.flipUpDown) applyFlipQuaternion(tempQuat);
-    tempScale.copy(this.splatBase.scale).multiplyScalar(this.splatManualScale);
+    tempScale.copy(this.splatBase.scale)
+      .multiplyScalar(this.splatManualScale)
+      .multiplyScalar(this.splatPresentationScale);
     if (this.flipLeftRight) tempScale.x = -tempScale.x;
-    tempPos.copy(this.splatBase.position).add(this.splatManualOffset);
+    tempPos.copy(this.splatBase.position)
+      .add(this.splatManualOffset)
+      .add(this.splatPresentationOffset);
     if (!parent) {
       mesh.position.copy(tempPos);
       mesh.quaternion.copy(tempQuat);

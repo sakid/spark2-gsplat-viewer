@@ -18,6 +18,9 @@ const tempCenter = new THREE.Vector3();
 const tempQuat = new THREE.Quaternion();
 const tempEuler = new THREE.Euler();
 const tempInv = new THREE.Matrix4();
+const tempPresentationQuat = new THREE.Quaternion();
+const tempPresentationOffset = new THREE.Vector3();
+const unitY = new THREE.Vector3(0, 1, 0);
 const zeroOffset = new THREE.Vector3();
 const DEFAULT_PROXY_WALK_SETTINGS = Object.freeze({
   cycleDuration: 1.1,
@@ -84,6 +87,9 @@ export class EnvironmentSplat {
     this.proxyWalkSettings = { ...DEFAULT_PROXY_WALK_SETTINGS };
     this.proxyAnimStateElapsed = 0;
     this.externalAutoAlign = true;
+    this.presentationEnabled = false;
+    this.presentationYaw = 0;
+    this.presentationYawSpeed = 0.08;
     this.showProxyRequested = true;
     this.showProxyBonesRequested = false;
     this.viewMode = 'full';
@@ -165,6 +171,7 @@ export class EnvironmentSplat {
     on('environment:proxyAnimPhase', (phase) => this.setProxyAnimationPhase(phase));
     on('environment:proxyWalkSettings', (settings) => this.setProxyWalkSettings(settings));
     on('environment:proxyWalkReset', () => this.resetProxyWalkSettings());
+    on('environment:presentation', (payload) => this.setPresentationMode(payload));
     on('environment:proxyCollisionMode', (mode) => this.setProxyCollisionMode(mode));
     on('environment:proxyDeformSplat', (enabled) => this.setProxyDeformEnabled(enabled));
     on('environment:viewMode', (mode) => this.setViewMode(mode));
@@ -203,6 +210,23 @@ export class EnvironmentSplat {
     this.emitProxyAnimationState();
     this.emitSheepAlignState();
     this.emitSheepCropState();
+  }
+
+  setPresentationMode(payload = {}) {
+    const enabled = typeof payload === 'boolean' ? payload : Boolean(payload.enabled);
+    this.presentationEnabled = enabled;
+    if (!enabled) {
+      this.presentationYaw = 0;
+      this.transforms.setSplatPresentationAlignment({
+        offset: zeroOffset,
+        scale: 1,
+        quaternion: null
+      });
+      return;
+    }
+    if (payload && typeof payload === 'object' && Number.isFinite(Number(payload.speed))) {
+      this.presentationYawSpeed = Math.max(0, Number(payload.speed) || 0);
+    }
   }
 
   setTransformFlag(flag, enabled) {
@@ -1453,6 +1477,15 @@ export class EnvironmentSplat {
   }
 
   update(delta) {
+    if (this.presentationEnabled) {
+      this.presentationYaw += Math.max(0, finiteNumber(delta, 0)) * this.presentationYawSpeed;
+      tempPresentationQuat.setFromAxisAngle(unitY, this.presentationYaw);
+      this.transforms.setSplatPresentationAlignment({
+        offset: tempPresentationOffset,
+        scale: 1,
+        quaternion: tempPresentationQuat
+      });
+    }
     this.applySplatTransform();
     this.external?.update(delta);
     this.voxelRuntime?.update(delta);

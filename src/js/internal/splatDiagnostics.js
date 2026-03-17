@@ -182,12 +182,12 @@ export function summarizeSplatMesh(mesh, voxelData, { label = '', extra = {}, sa
   const worldCenters = [];
   const opacities = [];
   const scales = [];
-  const worldMatrix = mesh?.matrixWorld?.isMatrix4 ? mesh.matrixWorld : new THREE.Matrix4();
   mesh?.updateMatrixWorld?.(true);
+  const worldMatrix = mesh?.matrixWorld?.isMatrix4 ? mesh.matrixWorld : new THREE.Matrix4();
   let sampledCount = 0;
   const stop = { stop: true };
 
-  if (typeof mesh?.forEachSplat === 'function') {
+  if (sampleLimit > 0 && typeof mesh?.forEachSplat === 'function') {
     try {
       mesh.forEachSplat((_index, center, splatScale, _quaternion, opacity) => {
         tempWorldCenter.copy(center).applyMatrix4(worldMatrix);
